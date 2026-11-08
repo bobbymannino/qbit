@@ -44,7 +44,6 @@ impl LoginWindow {
     /// - `prefill`: fills in the form (e.g. saved credentials, or the host and username
     ///   after logging out).
     /// - `message`: an error to show above the form.
-    /// - `auto_login`: log in with `prefill` straight away instead of waiting for the user.
     ///
     /// # Errors
     ///
@@ -53,11 +52,8 @@ impl LoginWindow {
         cx: &mut App,
         prefill: Option<Credentials>,
         message: Option<SharedString>,
-        auto_login: bool,
     ) -> Result<AnyWindowHandle> {
-        Self::open_window(cx, move |window, cx| {
-            Self::new(window, cx, prefill, message, auto_login)
-        })
+        Self::open_window(cx, move |window, cx| Self::new(window, cx, prefill, message))
     }
 
     fn new(
@@ -65,11 +61,10 @@ impl LoginWindow {
         cx: &mut Context<Self>,
         prefill: Option<Credentials>,
         message: Option<SharedString>,
-        auto_login: bool,
     ) -> Self {
-        let (host, username, password) = prefill.as_ref().map_or_else(
+        let (host, username, password) = prefill.map_or_else(
             || (String::new(), String::new(), String::new()),
-            |saved| (saved.host.clone(), saved.username.clone(), saved.password.clone()),
+            |saved| (saved.host, saved.username, saved.password),
         );
         let has_host = !host.is_empty();
 
@@ -105,20 +100,12 @@ impl LoginWindow {
         let first_empty = if has_host { &password } else { &host };
         first_empty.update(cx, |input, cx| input.focus(window, cx));
 
-        let (status, login) = match prefill {
-            Some(saved) if auto_login => (Status::LoggingIn, Self::start_login(window, cx, saved)),
-            _ => (
-                message.map_or(Status::Idle, Status::Failed),
-                Task::ready(()),
-            ),
-        };
-
         Self {
             host,
             username,
             password,
-            status,
-            _login: login,
+            status: message.map_or(Status::Idle, Status::Failed),
+            _login: Task::ready(()),
             _subscriptions: subscriptions,
         }
     }

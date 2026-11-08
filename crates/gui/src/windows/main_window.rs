@@ -263,7 +263,7 @@ impl MainWindow {
                 if let Err(err) = Credentials::clear() {
                     eprintln!("{err}");
                 }
-                match LoginWindow::open(cx, Some(prefill.clone()), None, false) {
+                match LoginWindow::open(cx, Some(prefill.clone()), None) {
                     Ok(_) => window.remove_window(),
                     Err(err) => eprintln!("Couldn't open the login window: {err}"),
                 }

@@ -1,12 +1,13 @@
 use gpui_kit::{application, component::init};
 
-use crate::{assets::AppAssets, credentials::Credentials, runtime::Tokio, windows::LoginWindow};
+use crate::{assets::AppAssets, runtime::Tokio};
 
 mod assets;
 mod consts;
 mod credentials;
 mod runtime;
 mod session;
+mod startup;
 mod theme;
 mod torrent_table;
 mod windows;
@@ -31,16 +32,6 @@ pub fn run() {
         })
         .detach();
 
-        // Log straight in with saved credentials; otherwise ask for them.
-        let (saved, message) = match Credentials::load() {
-            Ok(saved) => (saved, None),
-            Err(message) => (None, Some(message.into())),
-        };
-        let auto_login = saved.is_some();
-
-        if let Err(err) = LoginWindow::open(cx, saved, message, auto_login) {
-            eprintln!("Failed to open the login window: {err}");
-            cx.quit();
-        }
+        startup::start(cx);
     });
 }

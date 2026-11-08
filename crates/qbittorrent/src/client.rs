@@ -1,6 +1,14 @@
+use std::time::Duration;
+
 use reqwest::Url;
 
 use crate::Error;
+
+/// How long to wait to connect to the Web UI.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long a whole request may take.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// A client for the qBittorrent Web API.
 ///
@@ -34,7 +42,12 @@ impl Client {
             base.set_path(&path);
         }
 
-        let http = reqwest::Client::builder().cookie_store(true).build()?;
+        // Without timeouts an unreachable host hangs a request indefinitely.
+        let http = reqwest::Client::builder()
+            .cookie_store(true)
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
+            .build()?;
 
         Ok(Self { http, base })
     }
