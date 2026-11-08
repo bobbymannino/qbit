@@ -1,7 +1,8 @@
-use gpui_kit::{application, assets::Assets, component::init};
+use gpui_kit::{application, component::init};
 
-use crate::{credentials::Credentials, runtime::Tokio, windows::LoginWindow};
+use crate::{assets::AppAssets, credentials::Credentials, runtime::Tokio, windows::LoginWindow};
 
+mod assets;
 mod consts;
 mod credentials;
 mod runtime;
@@ -12,7 +13,7 @@ mod windows;
 
 /// Run the desktop application.
 pub fn run() {
-    application().with_assets(Assets).run(|cx| {
+    application().with_assets(AppAssets).run(|cx| {
         init(cx);
 
         if let Err(err) = Tokio::init(cx) {
