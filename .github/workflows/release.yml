@@ -8,11 +8,46 @@ permissions:
   contents: write
 
 jobs:
+  build-macos:
+    name: Build macOS (Apple Silicon)
+    # Apple Silicon runner.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build app and disk image
+        run: scripts/bundle-macos.sh "${GITHUB_REF_NAME}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: qBit-macos-arm64
+          # The disk image, not the bare .app: artifacts don't keep file permissions,
+          # which would leave the app's binary non-executable.
+          path: dist/*.dmg
+          if-no-files-found: error
+
   release:
+    needs: build-macos
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # so the previous tag can be detected
 
       - uses: bobbymannino/github-release-action@v1
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: qBit-macos-arm64
+          path: dist
+
+      - name: Attach the app to the release
+        run: gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
