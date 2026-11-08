@@ -1,11 +1,20 @@
 use std::cmp::Ordering;
 
 use gpui_kit::{
-    App, Context, IntoElement, SharedString, Window,
-    component::table::{Column, ColumnSort, TableDelegate, TableState},
+    AnyElement, App, Context, IntoElement, SharedString, Window,
+    base::h_flex,
+    component::{
+        Sizable as _,
+        progress::Progress,
+        table::{Column, ColumnSort, TableDelegate, TableState},
+    },
+    prelude::*,
     px,
 };
 use qbittorrent::Torrent;
+
+/// Width of the percentage shown next to a progress bar.
+const PERCENT_WIDTH: f32 = 44.0;
 
 /// The columns shown in the torrent table, in display order.
 #[derive(Clone, Copy)]
@@ -39,8 +48,7 @@ impl TorrentColumn {
             Self::Name => Column::new("name", "Name").width(px(280.0)).sortable(),
             Self::Size => Column::new("size", "Size").width(px(90.0)).text_right().sortable(),
             Self::Progress => Column::new("progress", "Progress")
-                .width(px(90.0))
-                .text_right()
+                .width(px(160.0))
                 .sortable(),
             Self::Status => Column::new("status", "Status").width(px(140.0)).sortable(),
             Self::Download => Column::new("dlspeed", "Down")
@@ -58,16 +66,17 @@ impl TorrentColumn {
         }
     }
 
-    fn cell(self, torrent: &Torrent) -> SharedString {
-        match self {
+    fn cell(self, torrent: &Torrent) -> AnyElement {
+        let text: SharedString = match self {
+            Self::Progress => return progress_cell(torrent),
             Self::Name => torrent.name.clone().into(),
             Self::Size => format_bytes(torrent.size).into(),
-            Self::Progress => format!("{:.1}%", torrent.progress * 100.0).into(),
             Self::Status => torrent.state.to_string().into(),
             Self::Download => format_speed(torrent.dlspeed).into(),
             Self::Upload => format_speed(torrent.upspeed).into(),
             Self::Ratio => format!("{:.2}", torrent.ratio).into(),
-        }
+        };
+        text.into_any_element()
     }
 
     fn compare(self, a: &Torrent, b: &Torrent) -> Ordering {
@@ -177,13 +186,50 @@ impl TableDelegate for TorrentTable {
 
         match (torrent, column) {
             (Some(torrent), Some(column)) => column.cell(torrent),
-            _ => SharedString::default(),
+            _ => SharedString::default().into_any_element(),
         }
     }
 
     fn loading(&self, _cx: &App) -> bool {
         self.loading
     }
+}
+
+/// The progress percentage, with a progress bar in front while the torrent is downloading.
+fn progress_cell(torrent: &Torrent) -> AnyElement {
+    let percent = torrent.progress * 100.0;
+
+    h_flex()
+        .w_full()
+        .gap_2()
+        .justify_end()
+        .when(torrent.state.is_downloading(), |row| {
+            row.child(
+                // Keyed by hash so the bar animates smoothly even when rows are re-sorted.
+                Progress::new(SharedString::from(format!("progress-{}", torrent.hash)))
+                    .value(percent_f32(percent))
+                    .xsmall()
+                    .flex_1(),
+            )
+        })
+        .child(
+            h_flex()
+                .flex_shrink_0()
+                .w(px(PERCENT_WIDTH))
+                .justify_end()
+                .child(format!("{percent:.1}%")),
+        )
+        .into_any_element()
+}
+
+/// Narrow a percentage to the `f32` the progress bar takes.
+#[expect(
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    reason = "a 0–100 percentage fits in f32 with room to spare"
+)]
+const fn percent_f32(percent: f64) -> f32 {
+    percent as f32
 }
 
 /// Format a byte count with binary units, e.g. `1.4 GiB`.

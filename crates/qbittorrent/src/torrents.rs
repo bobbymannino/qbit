@@ -90,6 +90,25 @@ pub enum TorrentState {
     Unknown,
 }
 
+impl TorrentState {
+    /// Whether the torrent is downloading, or waiting to (queued, stalled,
+    /// fetching metadata, checking or allocating), rather than stopped or seeding.
+    #[must_use]
+    pub const fn is_downloading(self) -> bool {
+        matches!(
+            self,
+            Self::Downloading
+                | Self::ForcedDl
+                | Self::MetaDl
+                | Self::ForcedMetaDl
+                | Self::QueuedDl
+                | Self::StalledDl
+                | Self::CheckingDl
+                | Self::Allocating
+        )
+    }
+}
+
 impl fmt::Display for TorrentState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
