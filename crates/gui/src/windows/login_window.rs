@@ -33,6 +33,9 @@ pub struct LoginWindow {
     username: Entity<InputState>,
     password: Entity<InputState>,
     status: Status,
+    /// What's already in the keychain, so logging in again with it doesn't re-save it
+    /// (each keychain write can cost the user a password prompt).
+    saved: Option<Credentials>,
     /// The login attempt in progress; replaced (and so cancelled) by a new one.
     _login: Task<()>,
     _subscriptions: Vec<Subscription>,
@@ -43,6 +46,7 @@ impl LoginWindow {
     ///
     /// - `prefill`: fills in the form (e.g. saved credentials, or the host and username
     ///   after logging out).
+    /// - `prefill_is_saved`: whether `prefill` is exactly what's in the keychain.
     /// - `message`: an error to show above the form.
     ///
     /// # Errors
@@ -51,17 +55,22 @@ impl LoginWindow {
     pub fn open(
         cx: &mut App,
         prefill: Option<Credentials>,
+        prefill_is_saved: bool,
         message: Option<SharedString>,
     ) -> Result<AnyWindowHandle> {
-        Self::open_window(cx, move |window, cx| Self::new(window, cx, prefill, message))
+        Self::open_window(cx, move |window, cx| {
+            Self::new(window, cx, prefill, prefill_is_saved, message)
+        })
     }
 
     fn new(
         window: &mut Window,
         cx: &mut Context<Self>,
         prefill: Option<Credentials>,
+        prefill_is_saved: bool,
         message: Option<SharedString>,
     ) -> Self {
+        let saved = if prefill_is_saved { prefill.clone() } else { None };
         let (host, username, password) = prefill.map_or_else(
             || (String::new(), String::new(), String::new()),
             |saved| (saved.host, saved.username, saved.password),
@@ -105,6 +114,7 @@ impl LoginWindow {
             username,
             password,
             status: message.map_or(Status::Idle, Status::Failed),
+            saved,
             _login: Task::ready(()),
             _subscriptions: subscriptions,
         }
@@ -133,14 +143,20 @@ impl LoginWindow {
             reason = "the task is only held so it isn't cancelled"
         )]
         {
-            self._login = Self::start_login(window, cx, credentials);
+            let save = self.saved.as_ref() != Some(&credentials);
+            self._login = Self::start_login(window, cx, credentials, save);
         }
         cx.notify();
     }
 
-    /// Log in on the Tokio runtime; on success save the credentials and swap this window
-    /// for the [`MainWindow`].
-    fn start_login(window: &Window, cx: &Context<Self>, credentials: Credentials) -> Task<()> {
+    /// Log in on the Tokio runtime; on success save the credentials (if `save`) and swap
+    /// this window for the [`MainWindow`].
+    fn start_login(
+        window: &Window,
+        cx: &Context<Self>,
+        credentials: Credentials,
+        save: bool,
+    ) -> Task<()> {
         let Some(runtime) = Tokio::handle(cx) else {
             return cx.spawn_in(window, async move |this, cx| {
                 this.update(cx, |this, cx| {
@@ -170,14 +186,16 @@ impl LoginWindow {
                 }
             };
 
-            // The keychain can block (e.g. on an unlock prompt), so keep it off the UI thread.
-            let to_save = credentials.clone();
-            let saved = cx
-                .background_executor()
-                .spawn(async move { to_save.save() })
-                .await;
-            if let Err(err) = saved {
-                eprintln!("{err}");
+            if save {
+                // The keychain can block (e.g. on an unlock prompt), so keep it off the UI thread.
+                let to_save = credentials.clone();
+                let saved = cx
+                    .background_executor()
+                    .spawn(async move { to_save.save() })
+                    .await;
+                if let Err(err) = saved {
+                    eprintln!("{err}");
+                }
             }
 
             cx.update(|window, cx| {

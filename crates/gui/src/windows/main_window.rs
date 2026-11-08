@@ -188,7 +188,8 @@ impl MainWindow {
             }
         }
 
-        table.refresh(cx);
+        // Only redraw. `TableState::refresh` rebuilds the columns from the delegate,
+        // which would throw away the user's column widths, order and sort arrow.
         cx.notify();
     }
 
@@ -263,7 +264,7 @@ impl MainWindow {
                 if let Err(err) = Credentials::clear() {
                     eprintln!("{err}");
                 }
-                match LoginWindow::open(cx, Some(prefill.clone()), None) {
+                match LoginWindow::open(cx, Some(prefill.clone()), false, None) {
                     Ok(_) => window.remove_window(),
                     Err(err) => eprintln!("Couldn't open the login window: {err}"),
                 }

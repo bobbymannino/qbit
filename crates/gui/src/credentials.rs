@@ -12,7 +12,7 @@ const ACCOUNT: &str = "qbittorrent";
 /// Credential Manager on Windows, Secret Service on Linux.
 ///
 /// Deliberately not `Debug`, so the password can't end up in logs.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Credentials {
     pub host: String,
     pub username: String,

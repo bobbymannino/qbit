@@ -15,12 +15,13 @@ use crate::{
 pub fn start(cx: &mut App) {
     let saved = match Credentials::load() {
         Ok(Some(saved)) => saved,
-        Ok(None) => return show_login(cx, None, None),
-        Err(message) => return show_login(cx, None, Some(message.into())),
+        Ok(None) => return show_login(cx, None, false, None),
+        Err(message) => return show_login(cx, None, false, Some(message.into())),
     };
 
     let Some(runtime) = Tokio::handle(cx) else {
-        return show_login(cx, Some(saved), Some("The async runtime failed to start".into()));
+        let message = "The async runtime failed to start".into();
+        return show_login(cx, Some(saved), true, Some(message));
     };
 
     cx.spawn(async move |cx| {
@@ -33,18 +34,23 @@ pub fn start(cx: &mut App) {
             Ok(client) => {
                 if let Err(err) = MainWindow::open(cx, saved.clone(), client) {
                     let message = format!("Couldn't open the main window: {err}");
-                    show_login(cx, Some(saved), Some(message.into()));
+                    show_login(cx, Some(saved), true, Some(message.into()));
                 }
             }
-            Err(message) => show_login(cx, Some(saved), Some(message.into())),
+            Err(message) => show_login(cx, Some(saved), true, Some(message.into())),
         });
     })
     .detach();
 }
 
 /// Show the login form; quit if even that can't open, since there'd be no window at all.
-fn show_login(cx: &mut App, prefill: Option<Credentials>, message: Option<SharedString>) {
-    if let Err(err) = LoginWindow::open(cx, prefill, message) {
+fn show_login(
+    cx: &mut App,
+    prefill: Option<Credentials>,
+    prefill_is_saved: bool,
+    message: Option<SharedString>,
+) {
+    if let Err(err) = LoginWindow::open(cx, prefill, prefill_is_saved, message) {
         eprintln!("Failed to open the login window: {err}");
         cx.quit();
     }

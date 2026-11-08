@@ -77,10 +77,6 @@ impl TorrentColumn {
         Self::Ratio,
     ];
 
-    fn from_index(col_ix: usize) -> Option<Self> {
-        Self::ALL.get(col_ix).copied()
-    }
-
     fn column(self) -> Column {
         match self {
             Self::Toggle => Column::new("toggle", "")
@@ -152,6 +148,9 @@ pub struct TorrentTable {
     loading: bool,
     /// Used to start/stop torrents; `None` until logged in.
     actions: Option<Actions>,
+    /// Columns in display order. The table passes display indices to the delegate, so
+    /// this follows the user dragging columns around.
+    columns: Vec<TorrentColumn>,
 }
 
 /// What a start/stop button needs to send its request.
@@ -200,6 +199,16 @@ impl TorrentTable {
             sort: None,
             loading: true,
             actions: None,
+            columns: Vec::new(),
+        }
+    }
+
+    /// The column shown at display index `col_ix`.
+    fn column_at(&self, col_ix: usize) -> Option<TorrentColumn> {
+        if self.columns.is_empty() {
+            TorrentColumn::ALL.get(col_ix).copied()
+        } else {
+            self.columns.get(col_ix).copied()
         }
     }
 
@@ -314,7 +323,23 @@ impl TableDelegate for TorrentTable {
     }
 
     fn column(&self, col_ix: usize, _cx: &App) -> Column {
-        TorrentColumn::from_index(col_ix).map_or_else(Column::default, TorrentColumn::column)
+        self.column_at(col_ix).map_or_else(Column::default, TorrentColumn::column)
+    }
+
+    fn move_column(
+        &mut self,
+        col_ix: usize,
+        to_ix: usize,
+        _window: &mut Window,
+        _cx: &mut Context<TableState<Self>>,
+    ) {
+        if self.columns.is_empty() {
+            self.columns = TorrentColumn::ALL.to_vec();
+        }
+        if col_ix < self.columns.len() && to_ix < self.columns.len() {
+            let column = self.columns.remove(col_ix);
+            self.columns.insert(to_ix, column);
+        }
     }
 
     fn perform_sort(
@@ -324,7 +349,7 @@ impl TableDelegate for TorrentTable {
         _window: &mut Window,
         _cx: &mut Context<TableState<Self>>,
     ) {
-        let Some(column) = TorrentColumn::from_index(col_ix) else {
+        let Some(column) = self.column_at(col_ix) else {
             return;
         };
 
@@ -340,7 +365,7 @@ impl TableDelegate for TorrentTable {
         _cx: &mut Context<TableState<Self>>,
     ) -> impl IntoElement {
         let torrent = self.torrents.get(row_ix);
-        let column = TorrentColumn::from_index(col_ix);
+        let column = self.column_at(col_ix);
 
         match (torrent, column) {
             (Some(torrent), Some(TorrentColumn::Toggle)) => self.toggle_button(torrent),
