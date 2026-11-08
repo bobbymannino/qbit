@@ -9,6 +9,7 @@ mod consts;
 mod runtime;
 mod session;
 mod theme;
+mod torrent_table;
 mod windows;
 
 /// Run the desktop application.
