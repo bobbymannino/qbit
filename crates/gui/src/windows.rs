@@ -12,7 +12,7 @@ pub trait OpenableWindow: Render {
     fn window_options(cx: &App) -> WindowOptions;
 
     /// Create a new instance of this window.
-    fn new(window: &Window, cx: &mut Context<Self>) -> Self;
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self;
 
     /// Creates a new window, opens it, and brings it to the foreground.
     ///

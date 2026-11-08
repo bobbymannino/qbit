@@ -10,6 +10,7 @@ edition = "2024"
 gpui-kit = "0.9.0"
 dotenvy = "0.15"
 reqwest = { version = "0.13", features = ["json", "form", "cookies"] }
+serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 gui = { path = "crates/gui" }
 qbittorrent = { path = "crates/qbittorrent" }
