@@ -32,8 +32,38 @@ jobs:
           path: dist/*.dmg
           if-no-files-found: error
 
+  build-linux:
+    name: Build Linux (x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Headers for gpui's Wayland/X11 windowing, fonts and the Vulkan renderer.
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig-dev libfreetype-dev libwayland-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libx11-xcb-dev libvulkan-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build tarball
+        run: scripts/bundle-linux.sh "${GITHUB_REF_NAME}"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: qBit-linux-x86_64
+          # A tarball keeps the binary executable, which artifacts alone wouldn't.
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
   release:
-    needs: build-macos
+    needs: [build-macos, build-linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -44,10 +74,11 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          name: qBit-macos-arm64
+          pattern: qBit-*
+          merge-multiple: true
           path: dist
 
-      - name: Attach the app to the release
+      - name: Attach the builds to the release
         run: gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
         env:
           GH_TOKEN: ${{ github.token }}

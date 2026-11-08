@@ -27,7 +27,8 @@ cargo build --release --locked --target "$target"
 target_dir="$(cargo metadata --format-version 1 --no-deps \
     | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
 
-rm -rf "$dist"
+# Only clear this script's own output, so other platforms' builds in dist/ survive.
+rm -rf "$app" "$artifact.dmg"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 cp "$target_dir/$target/release/$bin_name" "$app/Contents/MacOS/$bin_name"
