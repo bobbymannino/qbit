@@ -91,6 +91,15 @@ pub enum TorrentState {
 }
 
 impl TorrentState {
+    /// Whether the torrent is stopped (paused), so it can be started.
+    #[must_use]
+    pub const fn is_stopped(self) -> bool {
+        matches!(
+            self,
+            Self::PausedUp | Self::StoppedUp | Self::PausedDl | Self::StoppedDl
+        )
+    }
+
     /// Whether the torrent is downloading, or waiting to (queued, stalled,
     /// fetching metadata, checking or allocating), rather than stopped or seeding.
     #[must_use]
@@ -157,5 +166,65 @@ impl Client {
             status if !status.is_success() => Err(Error::UnexpectedStatus(status)),
             _ => Ok(res.json().await?),
         }
+    }
+
+    /// Start (resume) the torrents with the given hashes.
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotLoggedIn`] if there is no valid session.
+    /// - [`Error::UnexpectedStatus`] for any other non-success response.
+    /// - [`Error::Http`] if the request fails.
+    pub async fn start(&self, hashes: &[&str]) -> Result<(), Error> {
+        self.post_hashes("start", "resume", hashes).await
+    }
+
+    /// Stop (pause) the torrents with the given hashes.
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotLoggedIn`] if there is no valid session.
+    /// - [`Error::UnexpectedStatus`] for any other non-success response.
+    /// - [`Error::Http`] if the request fails.
+    pub async fn stop(&self, hashes: &[&str]) -> Result<(), Error> {
+        self.post_hashes("stop", "pause", hashes).await
+    }
+
+    /// POST `hashes` to `api/v2/torrents/{action}`.
+    ///
+    /// qBittorrent 5 renamed `pause`/`resume` to `stop`/`start`, so on a 404 this
+    /// retries with `legacy_action` to keep working with qBittorrent 4.
+    async fn post_hashes(
+        &self,
+        action: &str,
+        legacy_action: &str,
+        hashes: &[&str],
+    ) -> Result<(), Error> {
+        let hashes = hashes.join("|");
+
+        let mut status = self.post_torrents_form(action, &hashes).await?;
+        if status == StatusCode::NOT_FOUND {
+            status = self.post_torrents_form(legacy_action, &hashes).await?;
+        }
+
+        match status {
+            StatusCode::FORBIDDEN => Err(Error::NotLoggedIn),
+            status if !status.is_success() => Err(Error::UnexpectedStatus(status)),
+            _ => Ok(()),
+        }
+    }
+
+    async fn post_torrents_form(&self, action: &str, hashes: &str) -> Result<StatusCode, Error> {
+        let url = self.endpoint(&format!("api/v2/torrents/{action}"))?;
+
+        let res = self
+            .http
+            .post(url)
+            .header(header::REFERER, self.base.as_str())
+            .form(&[("hashes", hashes)])
+            .send()
+            .await?;
+
+        Ok(res.status())
     }
 }

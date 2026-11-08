@@ -70,6 +70,7 @@ impl MainWindow {
                     match logged_in {
                         Ok(logged_in) => {
                             client = Some(logged_in.clone());
+                            Self::give_table_client(&this, cx, logged_in.clone(), runtime.clone());
                             logged_in
                         }
                         Err(message) => {
@@ -142,6 +143,22 @@ impl MainWindow {
             cx.notify();
         })
         .is_ok()
+    }
+
+    /// Hand the logged-in client to the table so its play/pause buttons work.
+    fn give_table_client(
+        this: &WeakEntity<Self>,
+        cx: &mut AsyncApp,
+        client: Client,
+        runtime: tokio::runtime::Handle,
+    ) {
+        this.update(cx, |this, cx| {
+            this.table.update(cx, |table, cx| {
+                table.delegate_mut().set_client(client, runtime);
+                cx.notify();
+            });
+        })
+        .ok();
     }
 
     /// Whether the table already has data (so later refreshes don't flash "Loading").

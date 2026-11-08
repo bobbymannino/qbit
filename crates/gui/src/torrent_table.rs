@@ -2,16 +2,19 @@ use std::cmp::Ordering;
 
 use gpui_kit::{
     AnyElement, App, Context, IntoElement, SharedString, Window,
+    assets::IconName,
     base::h_flex,
     component::{
-        Sizable as _,
+        Disableable as _, Sizable as _,
+        button::{Button, ButtonVariants as _},
         progress::Progress,
         table::{Column, ColumnSort, TableDelegate, TableState},
     },
     prelude::*,
     px,
 };
-use qbittorrent::Torrent;
+use qbittorrent::{Client, Torrent};
+use tokio::runtime::Handle;
 
 /// Width of the percentage shown next to a progress bar.
 const PERCENT_WIDTH: f32 = 44.0;
@@ -19,6 +22,8 @@ const PERCENT_WIDTH: f32 = 44.0;
 /// The columns shown in the torrent table, in display order.
 #[derive(Clone, Copy)]
 enum TorrentColumn {
+    /// Play/pause button.
+    Toggle,
     Name,
     Size,
     Progress,
@@ -29,7 +34,8 @@ enum TorrentColumn {
 }
 
 impl TorrentColumn {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
+        Self::Toggle,
         Self::Name,
         Self::Size,
         Self::Progress,
@@ -45,6 +51,11 @@ impl TorrentColumn {
 
     fn column(self) -> Column {
         match self {
+            Self::Toggle => Column::new("toggle", "")
+                .width(px(40.0))
+                .text_center()
+                .resizable(false)
+                .movable(false),
             Self::Name => Column::new("name", "Name").width(px(280.0)).sortable(),
             Self::Size => Column::new("size", "Size").width(px(90.0)).text_right().sortable(),
             Self::Progress => Column::new("progress", "Progress")
@@ -69,6 +80,8 @@ impl TorrentColumn {
     fn cell(self, torrent: &Torrent) -> AnyElement {
         let text: SharedString = match self {
             Self::Progress => return progress_cell(torrent),
+            // Rendered by `TorrentTable::toggle_button`, which has the client.
+            Self::Toggle => SharedString::default(),
             Self::Name => torrent.name.clone().into(),
             Self::Size => format_bytes(torrent.size).into(),
             Self::Status => torrent.state.to_string().into(),
@@ -81,6 +94,7 @@ impl TorrentColumn {
 
     fn compare(self, a: &Torrent, b: &Torrent) -> Ordering {
         match self {
+            Self::Toggle => a.state.is_stopped().cmp(&b.state.is_stopped()),
             Self::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
             Self::Size => a.size.cmp(&b.size),
             Self::Progress => a.progress.total_cmp(&b.progress),
@@ -102,6 +116,15 @@ pub struct TorrentTable {
     sort: Option<(TorrentColumn, ColumnSort)>,
     /// Whether the torrents are still being fetched.
     loading: bool,
+    /// Used to start/stop torrents; `None` until logged in.
+    actions: Option<Actions>,
+}
+
+/// What a play/pause button needs to send its request.
+#[derive(Clone)]
+struct Actions {
+    client: Client,
+    runtime: Handle,
 }
 
 impl TorrentTable {
@@ -111,7 +134,54 @@ impl TorrentTable {
             original: Vec::new(),
             sort: None,
             loading: true,
+            actions: None,
         }
+    }
+
+    /// Let the play/pause buttons use `client`, sending requests on `runtime`.
+    pub fn set_client(&mut self, client: Client, runtime: Handle) {
+        self.actions = Some(Actions { client, runtime });
+    }
+
+    /// A button that starts a stopped torrent, or stops a running one.
+    ///
+    /// The new state shows up on the next refresh.
+    fn toggle_button(&self, torrent: &Torrent) -> AnyElement {
+        let stopped = torrent.state.is_stopped();
+        let (icon, tooltip) = if stopped {
+            (IconName::Play, "Start")
+        } else {
+            (IconName::Pause, "Stop")
+        };
+        let actions = self.actions.clone();
+        let hash = torrent.hash.clone();
+
+        Button::new(SharedString::from(format!("toggle-{}", torrent.hash)))
+            .icon(icon)
+            .ghost()
+            .xsmall()
+            .tooltip(tooltip)
+            .disabled(actions.is_none())
+            .on_click(move |_, _, cx| {
+                // Don't let the click also select the row.
+                cx.stop_propagation();
+
+                let Some(Actions { client, runtime }) = actions.clone() else {
+                    return;
+                };
+                let hash = hash.clone();
+                runtime.spawn(async move {
+                    let result = if stopped {
+                        client.start(&[&hash]).await
+                    } else {
+                        client.stop(&[&hash]).await
+                    };
+                    if let Err(err) = result {
+                        eprintln!("Failed to {} torrent {hash}: {err}", tooltip.to_lowercase());
+                    }
+                });
+            })
+            .into_any_element()
     }
 
     /// Replace the rows, keeping the current sort, and stop showing the loading state.
@@ -185,6 +255,7 @@ impl TableDelegate for TorrentTable {
         let column = TorrentColumn::from_index(col_ix);
 
         match (torrent, column) {
+            (Some(torrent), Some(TorrentColumn::Toggle)) => self.toggle_button(torrent),
             (Some(torrent), Some(column)) => column.cell(torrent),
             _ => SharedString::default().into_any_element(),
         }
