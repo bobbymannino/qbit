@@ -1,0 +1,18 @@
+format_code_in_doc_comments = true
+doc_comment_code_block_width = 120
+comment_width = 120
+normalize_comments = true
+normalize_doc_attributes = true
+wrap_comments = true
+
+max_width = 120
+single_line_let_else_max_width = 80
+
+float_literal_trailing_zero = "IfNoPostfix"
+hex_literal_case = "Upper"
+format_strings = true
+use_try_shorthand = true
+reorder_impl_items = true
+
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"

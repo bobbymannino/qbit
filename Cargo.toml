@@ -1,6 +1,46 @@
-[package]
-name = "qbit"
-version = "0.1.0"
+[workspace]
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.1"
+rust-version = "1.95"
 edition = "2024"
 
+[workspace.dependencies]
+gpui-kit = "0.9.0"
+gui = { path = "crates/gui" }
+
+[workspace.lints.clippy]
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+unreachable = "deny"
+unimplemented = "deny"
+unchecked_time_subtraction = "deny"
+todo = "deny"
+string_slice = "deny"
+panic_in_result_fn = "deny"
+panic = "deny"
+exit = "deny"
+as_conversions = "deny"
+
+[package]
+name = "qbit"
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+
 [dependencies]
+gui.workspace = true
+
+[lints]
+workspace = true
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
