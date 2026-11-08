@@ -1,6 +1,9 @@
 mod main_window;
 
-use gpui_kit::{AnyWindowHandle, App, AppContext as _, Render, Result, Window, WindowOptions, component::Theme};
+use gpui_kit::{
+    AnyWindowHandle, App, AppContext as _, Context, Render, Result, Window, WindowOptions,
+    component::Theme,
+};
 pub use main_window::MainWindow;
 
 /// Defines a window that can be opened.
@@ -9,7 +12,7 @@ pub trait OpenableWindow: Render {
     fn window_options(cx: &App) -> WindowOptions;
 
     /// Create a new instance of this window.
-    fn new(window: &Window, cx: &mut App) -> Self;
+    fn new(window: &Window, cx: &mut Context<Self>) -> Self;
 
     /// Creates a new window, opens it, and brings it to the foreground.
     ///

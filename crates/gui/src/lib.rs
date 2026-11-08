@@ -1,8 +1,13 @@
 use gpui_kit::{application, assets::Assets, component::init};
 
-use crate::windows::{MainWindow, OpenableWindow};
+use crate::{
+    runtime::Tokio,
+    windows::{MainWindow, OpenableWindow},
+};
 
 mod consts;
+mod runtime;
+mod session;
 mod theme;
 mod windows;
 
@@ -10,6 +15,13 @@ mod windows;
 pub fn run() {
     application().with_assets(Assets).run(|cx| {
         init(cx);
+
+        // Credentials can come from a `.env` file; a missing file is fine.
+        dotenvy::dotenv().ok();
+
+        if let Err(err) = Tokio::init(cx) {
+            eprintln!("Failed to start the async runtime: {err}");
+        }
 
         if let Err(err) = theme::init(cx) {
             eprintln!("Failed to load the Catppuccin theme: {err}");
