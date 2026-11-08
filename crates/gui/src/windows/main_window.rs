@@ -2,12 +2,15 @@ use std::time::Duration;
 
 use gpui_kit::{
     AnyWindowHandle, App, AppContext as _, AsyncApp, Context, Entity, Render, Result,
-    SharedString, Size, Task, TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions,
+    SharedString, Size, Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds,
+    WindowOptions,
     assets::IconName,
     base::{StyledExt, h_flex, v_flex},
     component::{
         ActiveTheme as _, Disableable as _, Sizable as _,
+        Icon,
         button::{Button, ButtonVariants as _, Toggle, ToggleGroup},
+        input::{Input, InputEvent, InputState},
         table::{DataTable, TableState},
     },
     div,
@@ -42,6 +45,9 @@ pub struct MainWindow {
     credentials: Credentials,
     status: Status,
     table: Entity<TableState<TorrentTable>>,
+    /// Filters the table by torrent name.
+    search: Entity<InputState>,
+    _subscriptions: Vec<Subscription>,
     /// Logs in and refreshes the torrents; dropped (and so stopped) with the window.
     _refresh: Task<()>,
 }
@@ -68,11 +74,28 @@ impl MainWindow {
         }
         let table = cx.new(|cx| TableState::new(rows, window, cx));
 
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search torrents"));
+        let subscriptions = vec![cx.subscribe_in(
+            &search,
+            window,
+            |this, search, event: &InputEvent, _, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let query = search.read(cx).value();
+                    this.table.update(cx, |table, cx| {
+                        Self::update_rows(table, cx, |rows| rows.set_query(&query));
+                    });
+                    cx.notify();
+                }
+            },
+        )];
+
         Self {
             _refresh: Self::start_refreshing(cx, credentials.clone(), client),
             credentials,
             status: Status::LoadingTorrents,
             table,
+            search,
+            _subscriptions: subscriptions,
         }
     }
 
@@ -349,7 +372,18 @@ impl Render for MainWindow {
                     .justify_between()
                     .gap_2()
                     .child(self.render_filters(cx))
-                    .child(self.render_bulk_actions(cx)),
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .child(
+                                Input::new(&self.search)
+                                    .prefix(Icon::new(IconName::Search).small())
+                                    .cleanable(true)
+                                    .small()
+                                    .w(px(220.0)),
+                            )
+                            .child(self.render_bulk_actions(cx)),
+                    ),
             )
             .child(
                 div()

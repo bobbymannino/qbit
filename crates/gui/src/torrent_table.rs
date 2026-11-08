@@ -166,6 +166,8 @@ pub struct TorrentTable {
     original: Vec<Torrent>,
     /// Which torrents are shown.
     filter: Filter,
+    /// Only torrents whose name contains this (case-insensitively) are shown.
+    query: String,
     /// The column and direction the user sorted by, re-applied after every refresh.
     sort: Option<(TorrentColumn, ColumnSort)>,
     /// Whether the torrents are still being fetched.
@@ -220,6 +222,7 @@ impl TorrentTable {
             torrents: Vec::new(),
             original: Vec::new(),
             filter: Filter::All,
+            query: String::new(),
             sort: None,
             loading: true,
             actions: None,
@@ -300,9 +303,22 @@ impl TorrentTable {
         self.apply_view();
     }
 
-    /// How many torrents match `filter`, regardless of the current one.
+    /// Show only torrents whose name contains `query`, ignoring case and surrounding spaces.
+    pub fn set_query(&mut self, query: &str) {
+        self.query = query.trim().to_lowercase();
+        self.apply_view();
+    }
+
+    /// How many torrents match `filter` and the search, regardless of the current filter.
     pub fn count(&self, filter: Filter) -> usize {
-        self.original.iter().filter(|torrent| filter.matches(torrent)).count()
+        self.original
+            .iter()
+            .filter(|torrent| filter.matches(torrent) && self.matches_query(torrent))
+            .count()
+    }
+
+    fn matches_query(&self, torrent: &Torrent) -> bool {
+        self.query.is_empty() || torrent.name.to_lowercase().contains(&self.query)
     }
 
     /// The hash of the torrent shown in row `row_ix`.
@@ -315,13 +331,14 @@ impl TorrentTable {
         self.torrents.iter().position(|torrent| torrent.hash == hash)
     }
 
-    /// Rebuild the rows: filter, then order by the remembered sort (or qBittorrent's order).
+    /// Rebuild the rows: filter and search, then order by the remembered sort (or
+    /// qBittorrent's order).
     fn apply_view(&mut self) {
         let filter = self.filter;
         self.torrents = self
             .original
             .iter()
-            .filter(|torrent| filter.matches(torrent))
+            .filter(|torrent| filter.matches(torrent) && self.matches_query(torrent))
             .cloned()
             .collect();
 
