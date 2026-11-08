@@ -1,7 +1,6 @@
 mod main_window;
 
-use gpui_kit::{AnyWindowHandle, App, AppContext as _, Render, Result, Window, WindowOptions};
-
+use gpui_kit::{AnyWindowHandle, App, AppContext as _, Render, Result, Window, WindowOptions, component::Theme};
 pub use main_window::MainWindow;
 
 /// Defines a window that can be opened.
@@ -26,6 +25,14 @@ pub trait OpenableWindow: Render {
 
         let (handle, _) = gpui_kit::open_window(wo, cx, |window, cx| {
             cx.activate(true);
+
+            // Switch between Catppuccin Latte and Mocha when the system appearance changes.
+            window
+                .observe_window_appearance(|window, cx| {
+                    Theme::sync_system_appearance(Some(window), cx);
+                })
+                .detach();
+
             cx.new(|cx| Self::new(window, cx))
         })?;
         Ok(handle)
