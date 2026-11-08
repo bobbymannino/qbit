@@ -1,6 +1,8 @@
+use std::time::Duration;
+
 use gpui_kit::{
-    App, AppContext as _, Context, Entity, Render, SharedString, Size, TitlebarOptions, Window,
-    WindowBounds, WindowOptions,
+    App, AppContext as _, AsyncApp, Context, Entity, Render, SharedString, Size, Task, TitlebarOptions, WeakEntity,
+    Window, WindowBounds, WindowOptions,
     base::{StyledExt, v_flex},
     component::{
         ActiveTheme as _,
@@ -10,6 +12,7 @@ use gpui_kit::{
     prelude::*,
     px,
 };
+use qbittorrent::{Client, Error, Torrent};
 
 use crate::{
     consts::{APP_ID, APP_TITLE},
@@ -19,80 +22,143 @@ use crate::{
     windows::OpenableWindow,
 };
 
+/// How often the torrent list is refreshed.
+const REFRESH_INTERVAL: Duration = Duration::from_millis(1_100);
+
 /// Where loading the torrent list is at.
 enum Status {
     LoggingIn,
     LoadingTorrents,
     Ready,
+    /// Something went wrong; the message is shown above the table.
     Failed(SharedString),
 }
 
 pub struct MainWindow {
     status: Status,
     table: Entity<TableState<TorrentTable>>,
+    /// Logs in and refreshes the torrents; dropped (and so stopped) with the window.
+    _refresh: Task<()>,
 }
 
 impl MainWindow {
-    /// Log in, then fetch every torrent into the table, all on the Tokio runtime.
-    fn start_loading(cx: &Context<Self>) -> Status {
+    /// Log in, then refresh the torrents every [`REFRESH_INTERVAL`] until the window closes.
+    ///
+    /// Network calls run on the Tokio runtime; the loop itself runs on gpui's executor.
+    fn start_refreshing(cx: &Context<Self>) -> Task<()> {
         let Some(runtime) = Tokio::handle(cx) else {
-            return Status::Failed("The async runtime failed to start".into());
+            return cx.spawn(async move |this, cx| {
+                let status = Status::Failed("The async runtime failed to start".into());
+                Self::set_status(&this, cx, status);
+            });
         };
 
         cx.spawn(async move |this, cx| {
-            let client = match runtime.spawn(login_from_env()).await {
-                Ok(Ok(client)) => client,
-                Ok(Err(message)) => {
-                    Self::set_status(&this, cx, Status::Failed(message.into()));
-                    return;
-                }
-                Err(err) => {
-                    let message = format!("Login task failed: {err}");
-                    Self::set_status(&this, cx, Status::Failed(message.into()));
-                    return;
-                }
-            };
+            let mut client: Option<Client> = None;
+            // Re-logging in is only tried once per expired session, so a bad
+            // password can't hammer the server into banning this IP.
+            let mut relogged_in = false;
 
-            Self::set_status(&this, cx, Status::LoadingTorrents);
+            loop {
+                let current = if let Some(current) = &client {
+                    current.clone()
+                } else {
+                    let logged_in = match runtime.spawn(login_from_env()).await {
+                        Ok(result) => result,
+                        Err(err) => Err(format!("Login task failed: {err}")),
+                    };
+                    match logged_in {
+                        Ok(logged_in) => {
+                            client = Some(logged_in.clone());
+                            logged_in
+                        }
+                        Err(message) => {
+                            Self::set_status(&this, cx, Status::Failed(message.into()));
+                            return;
+                        }
+                    }
+                };
 
-            let torrents = match runtime.spawn(async move { client.torrents().await }).await {
-                Ok(Ok(torrents)) => torrents,
-                Ok(Err(err)) => {
-                    let message = format!("Couldn't load torrents: {err}");
-                    Self::set_status(&this, cx, Status::Failed(message.into()));
+                if !Self::has_torrents(&this, cx) {
+                    Self::set_status(&this, cx, Status::LoadingTorrents);
+                }
+
+                let fetched = runtime.spawn(async move { current.torrents().await }).await;
+                let still_open = match fetched {
+                    Ok(Ok(torrents)) => {
+                        relogged_in = false;
+                        Self::show_torrents(&this, cx, torrents)
+                    }
+                    Ok(Err(Error::NotLoggedIn)) if !relogged_in => {
+                        // The session expired; log in again straight away.
+                        client = None;
+                        relogged_in = true;
+                        continue;
+                    }
+                    // Keep the last list on screen and try again next tick.
+                    Ok(Err(err)) => {
+                        let message = format!("Couldn't refresh torrents: {err}");
+                        Self::set_status(&this, cx, Status::Failed(message.into()))
+                    }
+                    Err(err) => {
+                        let message = format!("Torrent task failed: {err}");
+                        Self::set_status(&this, cx, Status::Failed(message.into()))
+                    }
+                };
+                if !still_open {
                     return;
                 }
-                Err(err) => {
-                    let message = format!("Torrent task failed: {err}");
-                    Self::set_status(&this, cx, Status::Failed(message.into()));
-                    return;
-                }
-            };
 
-            // The window may have been closed while loading.
-            this.update(cx, |this, cx| {
-                this.table.update(cx, |table, cx| {
-                    table.delegate_mut().set_torrents(torrents);
-                    table.refresh(cx);
-                    cx.notify();
-                });
-                this.status = Status::Ready;
-                cx.notify();
-            })
-            .ok();
+                cx.background_executor().timer(REFRESH_INTERVAL).await;
+            }
         })
-        .detach();
-
-        Status::LoggingIn
     }
 
-    /// Update the status line, ignoring a window that has already closed.
-    fn set_status(this: &gpui_kit::WeakEntity<Self>, cx: &mut gpui_kit::AsyncApp, status: Status) {
+    /// Put fresh torrents in the table, keeping the selected torrent selected.
+    ///
+    /// Returns `false` if the window has closed.
+    fn show_torrents(this: &WeakEntity<Self>, cx: &mut AsyncApp, torrents: Vec<Torrent>) -> bool {
+        this.update(cx, |this, cx| {
+            this.table.update(cx, |table, cx| {
+                let selected = table
+                    .selected_row()
+                    .and_then(|row_ix| table.delegate().hash_at(row_ix))
+                    .map(ToOwned::to_owned);
+
+                table.delegate_mut().set_torrents(torrents);
+
+                // Rows can move when sorted by a changing value like speed.
+                if let Some(hash) = selected
+                    && let Some(row_ix) = table.delegate().row_of(&hash)
+                    && table.selected_row() != Some(row_ix)
+                {
+                    table.set_selected_row(row_ix, cx);
+                }
+
+                table.refresh(cx);
+                cx.notify();
+            });
+            this.status = Status::Ready;
+            cx.notify();
+        })
+        .is_ok()
+    }
+
+    /// Whether the table already has data (so later refreshes don't flash "Loading").
+    fn has_torrents(this: &WeakEntity<Self>, cx: &AsyncApp) -> bool {
+        this.read_with(cx, |this, _| matches!(this.status, Status::Ready | Status::Failed(_)))
+            .unwrap_or(false)
+    }
+
+    /// Update the status line.
+    ///
+    /// Returns `false` if the window has closed.
+    fn set_status(this: &WeakEntity<Self>, cx: &mut AsyncApp, status: Status) -> bool {
         this.update(cx, |this, cx| {
             this.status = status;
             cx.notify();
         })
-        .ok();
+        .is_ok()
     }
 }
 
@@ -114,8 +180,9 @@ impl OpenableWindow for MainWindow {
         let table = cx.new(|cx| TableState::new(TorrentTable::new(), window, cx));
 
         Self {
-            status: Self::start_loading(cx),
+            status: Status::LoggingIn,
             table,
+            _refresh: Self::start_refreshing(cx),
         }
     }
 }

@@ -89,6 +89,8 @@ pub struct TorrentTable {
     torrents: Vec<Torrent>,
     /// Torrents in the order qBittorrent sent them, restored when sorting is cleared.
     original: Vec<Torrent>,
+    /// The column and direction the user sorted by, re-applied after every refresh.
+    sort: Option<(TorrentColumn, ColumnSort)>,
     /// Whether the torrents are still being fetched.
     loading: bool,
 }
@@ -98,15 +100,40 @@ impl TorrentTable {
         Self {
             torrents: Vec::new(),
             original: Vec::new(),
+            sort: None,
             loading: true,
         }
     }
 
-    /// Replace the rows and stop showing the loading state.
+    /// Replace the rows, keeping the current sort, and stop showing the loading state.
     pub fn set_torrents(&mut self, torrents: Vec<Torrent>) {
         self.original.clone_from(&torrents);
         self.torrents = torrents;
+        self.apply_sort();
         self.loading = false;
+    }
+
+    /// The hash of the torrent shown in row `row_ix`.
+    pub fn hash_at(&self, row_ix: usize) -> Option<&str> {
+        self.torrents.get(row_ix).map(|torrent| torrent.hash.as_str())
+    }
+
+    /// The row the torrent with `hash` is shown in.
+    pub fn row_of(&self, hash: &str) -> Option<usize> {
+        self.torrents.iter().position(|torrent| torrent.hash == hash)
+    }
+
+    /// Order the rows by the remembered sort, or qBittorrent's order if there is none.
+    fn apply_sort(&mut self) {
+        match self.sort {
+            None | Some((_, ColumnSort::Default)) => self.torrents.clone_from(&self.original),
+            Some((column, ColumnSort::Ascending)) => {
+                self.torrents.sort_by(|a, b| column.compare(a, b));
+            }
+            Some((column, ColumnSort::Descending)) => {
+                self.torrents.sort_by(|a, b| column.compare(b, a));
+            }
+        }
     }
 }
 
@@ -134,11 +161,8 @@ impl TableDelegate for TorrentTable {
             return;
         };
 
-        match sort {
-            ColumnSort::Default => self.torrents.clone_from(&self.original),
-            ColumnSort::Ascending => self.torrents.sort_by(|a, b| column.compare(a, b)),
-            ColumnSort::Descending => self.torrents.sort_by(|a, b| column.compare(b, a)),
-        }
+        self.sort = Some((column, sort));
+        self.apply_sort();
     }
 
     fn render_td(
