@@ -323,6 +323,11 @@ impl TorrentTable {
         self.query.is_empty() || torrent.name.to_lowercase().contains(&self.query)
     }
 
+    /// The torrent shown in row `row_ix`.
+    pub fn torrent_at(&self, row_ix: usize) -> Option<&Torrent> {
+        self.torrents.get(row_ix)
+    }
+
     /// The hash of the torrent shown in row `row_ix`.
     pub fn hash_at(&self, row_ix: usize) -> Option<&str> {
         self.torrents.get(row_ix).map(|torrent| torrent.hash.as_str())

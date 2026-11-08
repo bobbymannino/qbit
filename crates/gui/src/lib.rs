@@ -5,6 +5,7 @@ use crate::{assets::AppAssets, runtime::Tokio};
 mod assets;
 mod consts;
 mod credentials;
+mod details_panel;
 mod format;
 mod runtime;
 mod session;

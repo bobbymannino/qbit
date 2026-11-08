@@ -44,6 +44,18 @@ pub struct Torrent {
     pub content_path: String,
     /// Unix timestamp of when the torrent was added.
     pub added_on: i64,
+    /// Unix timestamp of when the download finished; `0` or negative if it hasn't.
+    #[serde(default)]
+    pub completion_on: i64,
+    /// Bytes downloaded, all time.
+    #[serde(default)]
+    pub downloaded: u64,
+    /// Bytes uploaded, all time.
+    #[serde(default)]
+    pub uploaded: u64,
+    /// The tracker currently in use, or empty if none is working.
+    #[serde(default)]
+    pub tracker: String,
 }
 
 /// A torrent's state, as reported by qBittorrent.

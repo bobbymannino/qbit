@@ -23,6 +23,7 @@ use qbittorrent::{Client, Error, MainData, Torrent, TransferInfo};
 use crate::{
     consts::{APP_ID, APP_TITLE},
     credentials::Credentials,
+    details_panel::details_panel,
     format::format_rate,
     runtime::Tokio,
     session::login,
@@ -79,7 +80,9 @@ impl MainWindow {
         let table = cx.new(|cx| TableState::new(rows, window, cx));
 
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search torrents"));
-        let subscriptions = vec![cx.subscribe_in(
+        // Redraw when the selection changes, so the details panel follows it.
+        let observe_table = cx.observe(&table, |_, _, cx| cx.notify());
+        let subscriptions = vec![observe_table, cx.subscribe_in(
             &search,
             window,
             |this, search, event: &InputEvent, _, cx| {
@@ -298,6 +301,13 @@ impl MainWindow {
             })
     }
 
+    /// The details panel for the selected torrent, if any.
+    fn render_details(&self, cx: &App) -> Option<impl IntoElement> {
+        let table = self.table.read(cx);
+        let torrent = table.delegate().torrent_at(table.selected_row()?)?;
+        Some(details_panel(torrent, &self.table, cx))
+    }
+
     /// Torrent count on the left; total download and upload speed on the right.
     fn render_status_bar(&self, cx: &App) -> impl IntoElement {
         let theme = cx.theme();
@@ -453,10 +463,19 @@ impl Render for MainWindow {
                     ),
             )
             .child(
-                div()
+                h_flex()
                     .flex_1()
                     .min_h_0()
-                    .child(DataTable::new(&self.table).stripe(true).bordered(true)),
+                    .items_start()
+                    .gap_3()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .child(DataTable::new(&self.table).stripe(true).bordered(true)),
+                    )
+                    .children(self.render_details(cx)),
             )
             .child(self.render_status_bar(cx))
     }
