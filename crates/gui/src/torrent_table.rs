@@ -154,11 +154,41 @@ pub struct TorrentTable {
     actions: Option<Actions>,
 }
 
-/// What a play/pause button needs to send its request.
+/// What a start/stop button needs to send its request.
 #[derive(Clone)]
 struct Actions {
     client: Client,
     runtime: Handle,
+}
+
+/// Which torrents a start/stop request applies to.
+enum Target {
+    One(String),
+    All,
+}
+
+impl Actions {
+    /// Start (or, if `start` is `false`, stop) `target` in the background.
+    ///
+    /// The new state shows up on the next refresh.
+    fn send(&self, start: bool, target: Target) {
+        let client = self.client.clone();
+        self.runtime.spawn(async move {
+            let result = match (&target, start) {
+                (Target::One(hash), true) => client.start(&[hash]).await,
+                (Target::One(hash), false) => client.stop(&[hash]).await,
+                (Target::All, true) => client.start_all().await,
+                (Target::All, false) => client.stop_all().await,
+            };
+            if let Err(err) = result {
+                let verb = if start { "start" } else { "stop" };
+                match target {
+                    Target::One(hash) => eprintln!("Failed to {verb} torrent {hash}: {err}"),
+                    Target::All => eprintln!("Failed to {verb} all torrents: {err}"),
+                }
+            }
+        });
+    }
 }
 
 impl TorrentTable {
@@ -201,22 +231,23 @@ impl TorrentTable {
                 // Don't let the click also select the row.
                 cx.stop_propagation();
 
-                let Some(Actions { client, runtime }) = actions.clone() else {
-                    return;
-                };
-                let hash = hash.clone();
-                runtime.spawn(async move {
-                    let result = if stopped {
-                        client.start(&[&hash]).await
-                    } else {
-                        client.stop(&[&hash]).await
-                    };
-                    if let Err(err) = result {
-                        eprintln!("Failed to {} torrent {hash}: {err}", tooltip.to_lowercase());
-                    }
-                });
+                if let Some(actions) = &actions {
+                    actions.send(stopped, Target::One(hash.clone()));
+                }
             })
             .into_any_element()
+    }
+
+    /// Whether start/stop requests can be sent yet (i.e. logged in).
+    pub const fn can_send(&self) -> bool {
+        self.actions.is_some()
+    }
+
+    /// Start (or, if `start` is `false`, stop) every torrent.
+    pub fn send_all(&self, start: bool) {
+        if let Some(actions) = &self.actions {
+            actions.send(start, Target::All);
+        }
     }
 
     /// Replace the torrents, keeping the filter and sort, and stop showing the loading state.

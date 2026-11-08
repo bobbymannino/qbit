@@ -200,6 +200,24 @@ impl Client {
         self.post_hashes("stop", "pause", hashes).await
     }
 
+    /// Start (resume) every torrent.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Client::start`].
+    pub async fn start_all(&self) -> Result<(), Error> {
+        self.start(&["all"]).await
+    }
+
+    /// Stop (pause) every torrent.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Client::stop`].
+    pub async fn stop_all(&self) -> Result<(), Error> {
+        self.stop(&["all"]).await
+    }
+
     /// POST `hashes` to `api/v2/torrents/{action}`.
     ///
     /// qBittorrent 5 renamed `pause`/`resume` to `stop`/`start`, so on a 404 this

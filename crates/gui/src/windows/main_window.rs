@@ -3,10 +3,11 @@ use std::time::Duration;
 use gpui_kit::{
     App, AppContext as _, AsyncApp, Context, Entity, Render, SharedString, Size, Task, TitlebarOptions, WeakEntity,
     Window, WindowBounds, WindowOptions,
-    base::{StyledExt, v_flex},
+    assets::IconName,
+    base::{StyledExt, h_flex, v_flex},
     component::{
-        ActiveTheme as _, Sizable as _,
-        button::{Toggle, ToggleGroup},
+        ActiveTheme as _, Disableable as _, Sizable as _,
+        button::{Button, Toggle, ToggleGroup},
         table::{DataTable, TableState},
     },
     div,
@@ -158,6 +159,27 @@ impl MainWindow {
         cx.notify();
     }
 
+    /// "Start all" and "Stop all" buttons, applying to every torrent.
+    fn render_bulk_actions(&self, cx: &App) -> impl IntoElement {
+        let enabled = self.table.read(cx).delegate().can_send();
+
+        let button = |id: &'static str, label: &'static str, icon: IconName, start: bool| {
+            let table = self.table.clone();
+            Button::new(id)
+                .label(label)
+                .icon(icon)
+                .small()
+                .outline()
+                .disabled(!enabled)
+                .on_click(move |_, _, cx| table.read(cx).delegate().send_all(start))
+        };
+
+        h_flex()
+            .gap_2()
+            .child(button("start-all", "Start all", IconName::Play, true))
+            .child(button("stop-all", "Stop all", IconName::Pause, false))
+    }
+
     /// Toggles for showing all, downloading, seeding or stopped torrents, with counts.
     fn render_filters(&self, cx: &App) -> impl IntoElement {
         let rows = self.table.read(cx).delegate();
@@ -269,7 +291,13 @@ impl Render for MainWindow {
             .text_color(theme.foreground)
             .child(div().child("qBit").font_bold().text_3xl())
             .children(status.map(|status| div().text_color(theme.muted_foreground).child(status)))
-            .child(self.render_filters(cx))
+            .child(
+                h_flex()
+                    .justify_between()
+                    .gap_2()
+                    .child(self.render_filters(cx))
+                    .child(self.render_bulk_actions(cx)),
+            )
             .child(
                 div()
                     .flex_1()
