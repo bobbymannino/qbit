@@ -1,10 +1,12 @@
 #!/bin/sh
-# Build qBit for x86_64 Linux and package it as a tarball.
+# Build qBit for Linux and package it as a tarball.
 #
 # Usage: scripts/bundle-linux.sh [version]
 #
-# Writes dist/qBit-<version>-linux-x86_64.tar.gz, holding the `qbit` binary and a
-# `qbit.desktop` launcher entry. The version defaults to the one in Cargo.toml.
+# Builds for the machine it runs on (x86_64 or arm64); set QBIT_TARGET to a Rust target
+# triple to override. Writes dist/qBit-<version>-linux-<arch>.tar.gz, holding the `qbit`
+# binary and a `qbit.desktop` launcher entry. The version defaults to the one in
+# Cargo.toml.
 #
 # Needs the development packages for Wayland, X11 (xcb, xkbcommon) and fontconfig;
 # see the Linux job in .github/workflows/release.yml for the Debian/Ubuntu list.
@@ -15,9 +17,23 @@ cd "$(dirname "$0")/.."
 version="${1:-$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)}"
 version="${version#v}"
 bin_name="qbit"
-target="x86_64-unknown-linux-gnu"
 
-name="qBit-$version-linux-x86_64"
+if [ -z "${QBIT_TARGET:-}" ]; then
+    case "$(uname -m)" in
+        x86_64 | amd64) QBIT_TARGET="x86_64-unknown-linux-gnu" ;;
+        aarch64 | arm64) QBIT_TARGET="aarch64-unknown-linux-gnu" ;;
+        *) echo "Unsupported architecture: $(uname -m); set QBIT_TARGET" >&2; exit 1 ;;
+    esac
+fi
+target="$QBIT_TARGET"
+
+case "$target" in
+    x86_64-*) arch="x86_64" ;;
+    aarch64-*) arch="arm64" ;;
+    *) arch="${target%%-*}" ;;
+esac
+
+name="qBit-$version-linux-$arch"
 dist="dist"
 staging="$dist/$name"
 

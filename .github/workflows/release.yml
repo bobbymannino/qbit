@@ -33,8 +33,18 @@ jobs:
           if-no-files-found: error
 
   build-linux:
-    name: Build Linux (x86_64)
-    runs-on: ubuntu-latest
+    name: Build Linux (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - arch: arm64
+            # Native ARM runner, so no cross-compiling toolchain or libraries are needed.
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
 
@@ -48,16 +58,18 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-gnu
+          targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Build tarball
         run: scripts/bundle-linux.sh "${GITHUB_REF_NAME}"
+        env:
+          QBIT_TARGET: ${{ matrix.target }}
 
       - uses: actions/upload-artifact@v7
         with:
-          name: qBit-linux-x86_64
+          name: qBit-linux-${{ matrix.arch }}
           # A tarball keeps the binary executable, which artifacts alone wouldn't.
           path: dist/*.tar.gz
           if-no-files-found: error
