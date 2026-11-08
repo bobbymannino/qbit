@@ -5,7 +5,8 @@ use gpui_kit::{
     Window, WindowBounds, WindowOptions,
     base::{StyledExt, v_flex},
     component::{
-        ActiveTheme as _,
+        ActiveTheme as _, Sizable as _,
+        button::{Toggle, ToggleGroup},
         table::{DataTable, TableState},
     },
     div,
@@ -18,7 +19,7 @@ use crate::{
     consts::{APP_ID, APP_TITLE},
     runtime::Tokio,
     session::login_from_env,
-    torrent_table::TorrentTable,
+    torrent_table::{Filter, TorrentTable},
     windows::OpenableWindow,
 };
 
@@ -121,28 +122,73 @@ impl MainWindow {
     fn show_torrents(this: &WeakEntity<Self>, cx: &mut AsyncApp, torrents: Vec<Torrent>) -> bool {
         this.update(cx, |this, cx| {
             this.table.update(cx, |table, cx| {
-                let selected = table
-                    .selected_row()
-                    .and_then(|row_ix| table.delegate().hash_at(row_ix))
-                    .map(ToOwned::to_owned);
-
-                table.delegate_mut().set_torrents(torrents);
-
-                // Rows can move when sorted by a changing value like speed.
-                if let Some(hash) = selected
-                    && let Some(row_ix) = table.delegate().row_of(&hash)
-                    && table.selected_row() != Some(row_ix)
-                {
-                    table.set_selected_row(row_ix, cx);
-                }
-
-                table.refresh(cx);
-                cx.notify();
+                Self::update_rows(table, cx, |rows| rows.set_torrents(torrents));
             });
             this.status = Status::Ready;
             cx.notify();
         })
         .is_ok()
+    }
+
+    /// Change the table's rows with `change`, keeping the selected torrent selected.
+    ///
+    /// Rows move when sorted by a changing value like speed, or when the filter
+    /// changes; if the selected torrent is no longer shown, the selection is cleared.
+    fn update_rows(
+        table: &mut TableState<TorrentTable>,
+        cx: &mut Context<TableState<TorrentTable>>,
+        change: impl FnOnce(&mut TorrentTable),
+    ) {
+        let selected = table
+            .selected_row()
+            .and_then(|row_ix| table.delegate().hash_at(row_ix))
+            .map(ToOwned::to_owned);
+
+        change(table.delegate_mut());
+
+        if let Some(hash) = selected {
+            match table.delegate().row_of(&hash) {
+                Some(row_ix) if table.selected_row() == Some(row_ix) => {}
+                Some(row_ix) => table.set_selected_row(row_ix, cx),
+                None => table.clear_selection(cx),
+            }
+        }
+
+        table.refresh(cx);
+        cx.notify();
+    }
+
+    /// Toggles for showing all, downloading, seeding or stopped torrents, with counts.
+    fn render_filters(&self, cx: &App) -> impl IntoElement {
+        let rows = self.table.read(cx).delegate();
+        let current = rows.filter();
+
+        let toggles = Filter::ALL.map(|filter| {
+            Toggle::new(filter.label())
+                .label(format!("{} ({})", filter.label(), rows.count(filter)))
+                .checked(filter == current)
+        });
+
+        let table = self.table.clone();
+        ToggleGroup::new("filters")
+            .segmented()
+            .small()
+            .children(toggles)
+            .on_click(move |checked, _, cx| {
+                // The group allows several toggles on; treat it as pick-one by taking
+                // the newly checked toggle. Unchecking the current one keeps it.
+                let picked = Filter::ALL
+                    .iter()
+                    .zip(checked)
+                    .find(|(filter, on)| **on && **filter != current)
+                    .map(|(filter, _)| *filter);
+
+                if let Some(filter) = picked {
+                    table.update(cx, |table, cx| {
+                        Self::update_rows(table, cx, |rows| rows.set_filter(filter));
+                    });
+                }
+            })
     }
 
     /// Hand the logged-in client to the table so its play/pause buttons work.
@@ -223,6 +269,7 @@ impl Render for MainWindow {
             .text_color(theme.foreground)
             .child(div().child("qBit").font_bold().text_3xl())
             .children(status.map(|status| div().text_color(theme.muted_foreground).child(status)))
+            .child(self.render_filters(cx))
             .child(
                 div()
                     .flex_1()

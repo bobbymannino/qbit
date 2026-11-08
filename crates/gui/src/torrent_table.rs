@@ -16,6 +16,38 @@ use gpui_kit::{
 use qbittorrent::{Client, Torrent};
 use tokio::runtime::Handle;
 
+/// Which torrents the table shows.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Filter {
+    #[default]
+    All,
+    Downloading,
+    Seeding,
+    Stopped,
+}
+
+impl Filter {
+    pub const ALL: [Self; 4] = [Self::All, Self::Downloading, Self::Seeding, Self::Stopped];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Downloading => "Downloading",
+            Self::Seeding => "Seeding",
+            Self::Stopped => "Stopped",
+        }
+    }
+
+    const fn matches(self, torrent: &Torrent) -> bool {
+        match self {
+            Self::All => true,
+            Self::Downloading => torrent.state.is_downloading(),
+            Self::Seeding => torrent.state.is_seeding(),
+            Self::Stopped => torrent.state.is_stopped(),
+        }
+    }
+}
+
 /// Width of the percentage shown next to a progress bar.
 const PERCENT_WIDTH: f32 = 44.0;
 
@@ -108,10 +140,12 @@ impl TorrentColumn {
 
 /// Supplies torrents to a gpui-kit `DataTable`.
 pub struct TorrentTable {
-    /// Torrents in display order.
+    /// The filtered, sorted torrents being shown.
     torrents: Vec<Torrent>,
-    /// Torrents in the order qBittorrent sent them, restored when sorting is cleared.
+    /// Every torrent, in the order qBittorrent sent them.
     original: Vec<Torrent>,
+    /// Which torrents are shown.
+    filter: Filter,
     /// The column and direction the user sorted by, re-applied after every refresh.
     sort: Option<(TorrentColumn, ColumnSort)>,
     /// Whether the torrents are still being fetched.
@@ -132,6 +166,7 @@ impl TorrentTable {
         Self {
             torrents: Vec::new(),
             original: Vec::new(),
+            filter: Filter::All,
             sort: None,
             loading: true,
             actions: None,
@@ -184,12 +219,26 @@ impl TorrentTable {
             .into_any_element()
     }
 
-    /// Replace the rows, keeping the current sort, and stop showing the loading state.
+    /// Replace the torrents, keeping the filter and sort, and stop showing the loading state.
     pub fn set_torrents(&mut self, torrents: Vec<Torrent>) {
-        self.original.clone_from(&torrents);
-        self.torrents = torrents;
-        self.apply_sort();
+        self.original = torrents;
+        self.apply_view();
         self.loading = false;
+    }
+
+    pub const fn filter(&self) -> Filter {
+        self.filter
+    }
+
+    /// Show only the torrents matching `filter`.
+    pub fn set_filter(&mut self, filter: Filter) {
+        self.filter = filter;
+        self.apply_view();
+    }
+
+    /// How many torrents match `filter`, regardless of the current one.
+    pub fn count(&self, filter: Filter) -> usize {
+        self.original.iter().filter(|torrent| filter.matches(torrent)).count()
     }
 
     /// The hash of the torrent shown in row `row_ix`.
@@ -202,10 +251,18 @@ impl TorrentTable {
         self.torrents.iter().position(|torrent| torrent.hash == hash)
     }
 
-    /// Order the rows by the remembered sort, or qBittorrent's order if there is none.
-    fn apply_sort(&mut self) {
+    /// Rebuild the rows: filter, then order by the remembered sort (or qBittorrent's order).
+    fn apply_view(&mut self) {
+        let filter = self.filter;
+        self.torrents = self
+            .original
+            .iter()
+            .filter(|torrent| filter.matches(torrent))
+            .cloned()
+            .collect();
+
         match self.sort {
-            None | Some((_, ColumnSort::Default)) => self.torrents.clone_from(&self.original),
+            None | Some((_, ColumnSort::Default)) => {}
             Some((column, ColumnSort::Ascending)) => {
                 self.torrents.sort_by(|a, b| column.compare(a, b));
             }
@@ -241,7 +298,7 @@ impl TableDelegate for TorrentTable {
         };
 
         self.sort = Some((column, sort));
-        self.apply_sort();
+        self.apply_view();
     }
 
     fn render_td(

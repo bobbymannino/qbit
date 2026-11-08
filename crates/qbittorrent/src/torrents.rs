@@ -91,6 +91,16 @@ pub enum TorrentState {
 }
 
 impl TorrentState {
+    /// Whether the torrent is complete and seeding, or waiting to (queued,
+    /// stalled or checking), rather than stopped.
+    #[must_use]
+    pub const fn is_seeding(self) -> bool {
+        matches!(
+            self,
+            Self::Uploading | Self::ForcedUp | Self::QueuedUp | Self::StalledUp | Self::CheckingUp
+        )
+    }
+
     /// Whether the torrent is stopped (paused), so it can be started.
     #[must_use]
     pub const fn is_stopped(self) -> bool {
