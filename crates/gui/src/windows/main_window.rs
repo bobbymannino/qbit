@@ -12,16 +12,18 @@ use gpui_kit::{
         button::{Button, ButtonVariants as _, Toggle, ToggleGroup},
         input::{Input, InputEvent, InputState},
         table::{DataTable, TableState},
+        tooltip::Tooltip,
     },
     div,
     prelude::*,
     px,
 };
-use qbittorrent::{Client, Error, Torrent};
+use qbittorrent::{Client, Error, Torrent, TransferInfo};
 
 use crate::{
     consts::{APP_ID, APP_TITLE},
     credentials::Credentials,
+    format::format_rate,
     runtime::Tokio,
     session::login,
     torrent_table::{Filter, TorrentTable},
@@ -44,6 +46,8 @@ pub struct MainWindow {
     /// after logging out.
     credentials: Credentials,
     status: Status,
+    /// Global speeds for the status bar; `None` until first fetched.
+    transfer: Option<TransferInfo>,
     table: Entity<TableState<TorrentTable>>,
     /// Filters the table by torrent name.
     search: Entity<InputState>,
@@ -93,6 +97,7 @@ impl MainWindow {
             _refresh: Self::start_refreshing(cx, credentials.clone(), client),
             credentials,
             status: Status::LoadingTorrents,
+            transfer: None,
             table,
             search,
             _subscriptions: subscriptions,
@@ -142,11 +147,18 @@ impl MainWindow {
                     Self::set_status(&this, cx, Status::LoadingTorrents);
                 }
 
-                let fetched = runtime.spawn(async move { current.torrents().await }).await;
+                let fetched = runtime
+                    .spawn(async move {
+                        let torrents = current.torrents().await?;
+                        // The status bar isn't worth failing a refresh over.
+                        let transfer = current.transfer_info().await.ok();
+                        Ok::<_, Error>((torrents, transfer))
+                    })
+                    .await;
                 let still_open = match fetched {
-                    Ok(Ok(torrents)) => {
+                    Ok(Ok((torrents, transfer))) => {
                         relogged_in = false;
-                        Self::show_torrents(&this, cx, torrents)
+                        Self::show_torrents(&this, cx, torrents, transfer)
                     }
                     Ok(Err(Error::NotLoggedIn)) if !relogged_in => {
                         // The session expired; log in again straight away.
@@ -176,11 +188,19 @@ impl MainWindow {
     /// Put fresh torrents in the table, keeping the selected torrent selected.
     ///
     /// Returns `false` if the window has closed.
-    fn show_torrents(this: &WeakEntity<Self>, cx: &mut AsyncApp, torrents: Vec<Torrent>) -> bool {
+    fn show_torrents(
+        this: &WeakEntity<Self>,
+        cx: &mut AsyncApp,
+        torrents: Vec<Torrent>,
+        transfer: Option<TransferInfo>,
+    ) -> bool {
         this.update(cx, |this, cx| {
             this.table.update(cx, |table, cx| {
                 Self::update_rows(table, cx, |rows| rows.set_torrents(torrents));
             });
+            if transfer.is_some() {
+                this.transfer = transfer;
+            }
             this.status = Status::Ready;
             cx.notify();
         })
@@ -268,6 +288,45 @@ impl MainWindow {
                     });
                 }
             })
+    }
+
+    /// Torrent count on the left; total download and upload speed on the right.
+    fn render_status_bar(&self, cx: &App) -> impl IntoElement {
+        let theme = cx.theme();
+        let count = self.table.read(cx).delegate().count(Filter::All);
+        let torrents = if count == 1 {
+            "1 torrent".to_owned()
+        } else {
+            format!("{count} torrents")
+        };
+
+        let (down, up) = self
+            .transfer
+            .as_ref()
+            .map_or((0, 0), |transfer| (transfer.dl_info_speed, transfer.up_info_speed));
+        let speed = |icon: IconName, rate: u64, label: &'static str| {
+            h_flex()
+                .gap_1()
+                .child(Icon::new(icon).xsmall())
+                .child(format_rate(rate))
+                .id(label)
+                .tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
+        };
+
+        h_flex()
+            .justify_between()
+            .pt_2()
+            .border_t_1()
+            .border_color(theme.border)
+            .text_xs()
+            .text_color(theme.muted_foreground)
+            .child(torrents)
+            .child(
+                h_flex()
+                    .gap_4()
+                    .child(speed(IconName::ArrowDown, down, "Total download speed"))
+                    .child(speed(IconName::ArrowUp, up, "Total upload speed")),
+            )
     }
 
     /// Forget the saved login and go back to the login window, keeping the host and
@@ -391,5 +450,6 @@ impl Render for MainWindow {
                     .min_h_0()
                     .child(DataTable::new(&self.table).stripe(true).bordered(true)),
             )
+            .child(self.render_status_bar(cx))
     }
 }

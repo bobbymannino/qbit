@@ -6,7 +6,9 @@ mod auth;
 mod client;
 mod error;
 mod torrents;
+mod transfer;
 
 pub use client::Client;
 pub use error::Error;
 pub use torrents::{Torrent, TorrentState};
+pub use transfer::TransferInfo;
