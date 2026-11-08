@@ -18,7 +18,7 @@ use gpui_kit::{
     prelude::*,
     px,
 };
-use qbittorrent::{Client, Error, Torrent, TransferInfo};
+use qbittorrent::{Client, Error, MainData, Torrent, TransferInfo};
 
 use crate::{
     consts::{APP_ID, APP_TITLE},
@@ -118,6 +118,8 @@ impl MainWindow {
 
         cx.spawn(async move |this, cx| {
             let mut client = Some(client);
+            // Merged state from `sync/maindata`; each refresh fetches only what changed.
+            let mut data = MainData::new();
             // Re-logging in is only tried once per expired session, so a bad
             // password can't hammer the server into banning this IP.
             let mut relogged_in = false;
@@ -133,6 +135,8 @@ impl MainWindow {
                     match logged_in {
                         Ok(logged_in) => {
                             client = Some(logged_in.clone());
+                            // A new session starts its own sync, so begin from scratch.
+                            data = MainData::new();
                             Self::give_table_client(&this, cx, logged_in.clone(), runtime.clone());
                             logged_in
                         }
@@ -147,18 +151,22 @@ impl MainWindow {
                     Self::set_status(&this, cx, Status::LoadingTorrents);
                 }
 
+                // The state moves into the Tokio task and comes back with the update.
+                let mut pending = std::mem::take(&mut data);
                 let fetched = runtime
                     .spawn(async move {
-                        let torrents = current.torrents().await?;
-                        // The status bar isn't worth failing a refresh over.
-                        let transfer = current.transfer_info().await.ok();
-                        Ok::<_, Error>((torrents, transfer))
+                        let result = pending.update(&current).await;
+                        (pending, result)
                     })
-                    .await;
+                    .await
+                    .map(|(updated, result)| {
+                        data = updated;
+                        result
+                    });
                 let still_open = match fetched {
-                    Ok(Ok((torrents, transfer))) => {
+                    Ok(Ok(())) => {
                         relogged_in = false;
-                        Self::show_torrents(&this, cx, torrents, transfer)
+                        Self::show_torrents(&this, cx, data.torrents(), data.transfer())
                     }
                     Ok(Err(Error::NotLoggedIn)) if !relogged_in => {
                         // The session expired; log in again straight away.
