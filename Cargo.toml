@@ -8,7 +8,11 @@ edition = "2024"
 
 [workspace.dependencies]
 gpui-kit = "0.9.0"
+dotenvy = "0.15"
+reqwest = { version = "0.13", features = ["json", "form", "cookies"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }
 gui = { path = "crates/gui" }
+qbittorrent = { path = "crates/qbittorrent" }
 
 [workspace.lints.clippy]
 pedantic = { level = "deny", priority = -1 }
