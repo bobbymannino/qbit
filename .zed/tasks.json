@@ -1,0 +1,20 @@
+[
+  {
+    "label": "Format (nightly)",
+    "command": "cargo",
+    "args": ["+nightly", "fmt"],
+    "hide": "always",
+  },
+  {
+    "label": "Run (debug)",
+    "command": "cargo",
+    "args": ["run"],
+    "hide": "on_success",
+  },
+  {
+    "label": "Run (release)",
+    "command": "cargo",
+    "args": ["run", "-r"],
+    "hide": "on_success",
+  },
+]
