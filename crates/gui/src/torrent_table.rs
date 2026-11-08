@@ -1,15 +1,18 @@
 use std::cmp::Ordering;
 
 use gpui_kit::{
-    AnyElement, App, Context, IntoElement, SharedString, Window,
+    AnyElement, App, ClipboardItem, Context, IntoElement, SharedString, Window,
     assets::IconName,
     base::h_flex,
     component::{
         Disableable as _, Sizable as _,
         button::{Button, ButtonVariants as _},
+        menu::{PopupMenu, PopupMenuItem},
         progress::Progress,
         table::{Column, ColumnSort, TableDelegate, TableState},
+        tooltip::Tooltip,
     },
+    div,
     prelude::*,
     px,
 };
@@ -105,6 +108,25 @@ impl TorrentColumn {
         }
     }
 
+    /// Identifies the column in element ids.
+    const fn key(self) -> &'static str {
+        match self {
+            Self::Toggle => "toggle",
+            Self::Name => "name",
+            Self::Size => "size",
+            Self::Progress => "progress",
+            Self::Status => "status",
+            Self::Download => "dlspeed",
+            Self::Upload => "upspeed",
+            Self::Ratio => "ratio",
+        }
+    }
+
+    /// Whether the column's values line up on the right (numbers).
+    const fn is_right_aligned(self) -> bool {
+        matches!(self, Self::Size | Self::Download | Self::Upload | Self::Ratio)
+    }
+
     fn cell(self, torrent: &Torrent) -> AnyElement {
         let text: SharedString = match self {
             Self::Progress => return progress_cell(torrent),
@@ -117,7 +139,9 @@ impl TorrentColumn {
             Self::Upload => format_speed(torrent.upspeed).into(),
             Self::Ratio => format!("{:.2}", torrent.ratio).into(),
         };
-        text.into_any_element()
+
+        let id = SharedString::from(format!("cell-{}-{}", torrent.hash, self.key()));
+        text_cell(id, text, self.is_right_aligned())
     }
 
     fn compare(self, a: &Torrent, b: &Torrent) -> Ordering {
@@ -374,16 +398,74 @@ impl TableDelegate for TorrentTable {
         }
     }
 
+    fn context_menu(
+        &mut self,
+        row_ix: usize,
+        menu: PopupMenu,
+        _window: &mut Window,
+        _cx: &mut Context<TableState<Self>>,
+    ) -> PopupMenu {
+        let Some(torrent) = self.torrents.get(row_ix) else {
+            return menu;
+        };
+
+        let name = torrent.name.clone();
+        // Older qBittorrent versions don't report `content_path`.
+        let path = if torrent.content_path.is_empty() {
+            torrent.save_path.clone()
+        } else {
+            torrent.content_path.clone()
+        };
+
+        menu.item(
+            PopupMenuItem::new("Copy name")
+                .icon(IconName::Copy)
+                .on_click(move |_, _, cx| copy(cx, &name)),
+        )
+        .item(
+            PopupMenuItem::new("Copy file path")
+                .icon(IconName::FolderOpen)
+                .on_click(move |_, _, cx| copy(cx, &path)),
+        )
+    }
+
     fn loading(&self, _cx: &App) -> bool {
         self.loading
+    }
+}
+
+/// Put `text` on the clipboard.
+fn copy(cx: &App, text: &str) {
+    cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
+}
+
+/// A single-line cell that cuts long text off with an ellipsis and shows the whole
+/// value in a tooltip on hover.
+fn text_cell(id: SharedString, text: SharedString, right_aligned: bool) -> AnyElement {
+    let cell = div()
+        .id(id)
+        .w_full()
+        .min_w_0()
+        .truncate()
+        .when(right_aligned, Styled::text_right)
+        .child(text.clone());
+
+    if text.is_empty() {
+        cell.into_any_element()
+    } else {
+        cell.tooltip(move |window, cx| Tooltip::new(text.clone()).build(window, cx))
+            .into_any_element()
     }
 }
 
 /// The progress percentage, with a progress bar in front while the torrent is downloading.
 fn progress_cell(torrent: &Torrent) -> AnyElement {
     let percent = torrent.progress * 100.0;
+    let label = SharedString::from(format!("{percent:.1}%"));
+    let tooltip = label.clone();
 
     h_flex()
+        .id(SharedString::from(format!("cell-{}-progress", torrent.hash)))
         .w_full()
         .gap_2()
         .justify_end()
@@ -401,8 +483,9 @@ fn progress_cell(torrent: &Torrent) -> AnyElement {
                 .flex_shrink_0()
                 .w(px(PERCENT_WIDTH))
                 .justify_end()
-                .child(format!("{percent:.1}%")),
+                .child(label),
         )
+        .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
         .into_any_element()
 }
 

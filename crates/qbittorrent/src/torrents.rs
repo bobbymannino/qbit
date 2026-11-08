@@ -38,6 +38,10 @@ pub struct Torrent {
     /// Where the torrent's data is saved.
     #[serde(default)]
     pub save_path: String,
+    /// Absolute path of the torrent's content: the file for a single-file torrent,
+    /// otherwise its top-level folder.
+    #[serde(default)]
+    pub content_path: String,
     /// Unix timestamp of when the torrent was added.
     pub added_on: i64,
 }
