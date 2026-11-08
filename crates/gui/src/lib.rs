@@ -1,11 +1,9 @@
 use gpui_kit::{application, assets::Assets, component::init};
 
-use crate::{
-    runtime::Tokio,
-    windows::{MainWindow, OpenableWindow},
-};
+use crate::{credentials::Credentials, runtime::Tokio, windows::LoginWindow};
 
 mod consts;
+mod credentials;
 mod runtime;
 mod session;
 mod theme;
@@ -16,9 +14,6 @@ mod windows;
 pub fn run() {
     application().with_assets(Assets).run(|cx| {
         init(cx);
-
-        // Credentials can come from a `.env` file; a missing file is fine.
-        dotenvy::dotenv().ok();
 
         if let Err(err) = Tokio::init(cx) {
             eprintln!("Failed to start the async runtime: {err}");
@@ -35,6 +30,16 @@ pub fn run() {
         })
         .detach();
 
-        MainWindow::open_new_window(cx).expect("Failed to open the main window");
+        // Log straight in with saved credentials; otherwise ask for them.
+        let (saved, message) = match Credentials::load() {
+            Ok(saved) => (saved, None),
+            Err(message) => (None, Some(message.into())),
+        };
+        let auto_login = saved.is_some();
+
+        if let Err(err) = LoginWindow::open(cx, saved, message, auto_login) {
+            eprintln!("Failed to open the login window: {err}");
+            cx.quit();
+        }
     });
 }

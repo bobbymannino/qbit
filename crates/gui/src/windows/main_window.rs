@@ -1,13 +1,13 @@
 use std::time::Duration;
 
 use gpui_kit::{
-    App, AppContext as _, AsyncApp, Context, Entity, Render, SharedString, Size, Task, TitlebarOptions, WeakEntity,
-    Window, WindowBounds, WindowOptions,
+    AnyWindowHandle, App, AppContext as _, AsyncApp, Context, Entity, Render, Result,
+    SharedString, Size, Task, TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions,
     assets::IconName,
     base::{StyledExt, h_flex, v_flex},
     component::{
         ActiveTheme as _, Disableable as _, Sizable as _,
-        button::{Button, Toggle, ToggleGroup},
+        button::{Button, ButtonVariants as _, Toggle, ToggleGroup},
         table::{DataTable, TableState},
     },
     div,
@@ -18,10 +18,11 @@ use qbittorrent::{Client, Error, Torrent};
 
 use crate::{
     consts::{APP_ID, APP_TITLE},
+    credentials::Credentials,
     runtime::Tokio,
-    session::login_from_env,
+    session::login,
     torrent_table::{Filter, TorrentTable},
-    windows::OpenableWindow,
+    windows::{LoginWindow, OpenableWindow},
 };
 
 /// How often the torrent list is refreshed.
@@ -29,7 +30,6 @@ const REFRESH_INTERVAL: Duration = Duration::from_millis(1_100);
 
 /// Where loading the torrent list is at.
 enum Status {
-    LoggingIn,
     LoadingTorrents,
     Ready,
     /// Something went wrong; the message is shown above the table.
@@ -37,6 +37,9 @@ enum Status {
 }
 
 pub struct MainWindow {
+    /// Used to log in again when the session expires, and to prefill the login form
+    /// after logging out.
+    credentials: Credentials,
     status: Status,
     table: Entity<TableState<TorrentTable>>,
     /// Logs in and refreshes the torrents; dropped (and so stopped) with the window.
@@ -44,10 +47,40 @@ pub struct MainWindow {
 }
 
 impl MainWindow {
-    /// Log in, then refresh the torrents every [`REFRESH_INTERVAL`] until the window closes.
+    /// Open the main window with an already logged-in `client`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the platform couldn't open the window.
+    pub fn open(cx: &mut App, credentials: Credentials, client: Client) -> Result<AnyWindowHandle> {
+        Self::open_window(cx, move |window, cx| Self::new(window, cx, credentials, client))
+    }
+
+    fn new(
+        window: &mut Window,
+        cx: &mut Context<Self>,
+        credentials: Credentials,
+        client: Client,
+    ) -> Self {
+        let mut rows = TorrentTable::new();
+        if let Some(runtime) = Tokio::handle(cx) {
+            rows.set_client(client.clone(), runtime);
+        }
+        let table = cx.new(|cx| TableState::new(rows, window, cx));
+
+        Self {
+            _refresh: Self::start_refreshing(cx, credentials.clone(), client),
+            credentials,
+            status: Status::LoadingTorrents,
+            table,
+        }
+    }
+
+    /// Refresh the torrents every [`REFRESH_INTERVAL`] until the window closes, logging in
+    /// again with `credentials` if the session expires.
     ///
     /// Network calls run on the Tokio runtime; the loop itself runs on gpui's executor.
-    fn start_refreshing(cx: &Context<Self>) -> Task<()> {
+    fn start_refreshing(cx: &Context<Self>, credentials: Credentials, client: Client) -> Task<()> {
         let Some(runtime) = Tokio::handle(cx) else {
             return cx.spawn(async move |this, cx| {
                 let status = Status::Failed("The async runtime failed to start".into());
@@ -56,7 +89,7 @@ impl MainWindow {
         };
 
         cx.spawn(async move |this, cx| {
-            let mut client: Option<Client> = None;
+            let mut client = Some(client);
             // Re-logging in is only tried once per expired session, so a bad
             // password can't hammer the server into banning this IP.
             let mut relogged_in = false;
@@ -65,7 +98,7 @@ impl MainWindow {
                 let current = if let Some(current) = &client {
                     current.clone()
                 } else {
-                    let logged_in = match runtime.spawn(login_from_env()).await {
+                    let logged_in = match runtime.spawn(login(credentials.clone())).await {
                         Ok(result) => result,
                         Err(err) => Err(format!("Login task failed: {err}")),
                     };
@@ -213,6 +246,30 @@ impl MainWindow {
             })
     }
 
+    /// Forget the saved login and go back to the login window, keeping the host and
+    /// username filled in.
+    fn render_log_out(&self) -> impl IntoElement {
+        let prefill = Credentials {
+            password: String::new(),
+            ..self.credentials.clone()
+        };
+
+        Button::new("log-out")
+            .label("Log out")
+            .icon(IconName::LogOut)
+            .small()
+            .ghost()
+            .on_click(move |_, window, cx| {
+                if let Err(err) = Credentials::clear() {
+                    eprintln!("{err}");
+                }
+                match LoginWindow::open(cx, Some(prefill.clone()), None, false) {
+                    Ok(_) => window.remove_window(),
+                    Err(err) => eprintln!("Couldn't open the login window: {err}"),
+                }
+            })
+    }
+
     /// Hand the logged-in client to the table so its play/pause buttons work.
     fn give_table_client(
         this: &WeakEntity<Self>,
@@ -261,15 +318,6 @@ impl OpenableWindow for MainWindow {
         }
     }
 
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let table = cx.new(|cx| TableState::new(TorrentTable::new(), window, cx));
-
-        Self {
-            status: Status::LoggingIn,
-            table,
-            _refresh: Self::start_refreshing(cx),
-        }
-    }
 }
 
 impl Render for MainWindow {
@@ -277,7 +325,6 @@ impl Render for MainWindow {
         let theme = cx.theme();
 
         let status: Option<SharedString> = match &self.status {
-            Status::LoggingIn => Some("Logging in…".into()),
             Status::LoadingTorrents => Some("Loading torrents…".into()),
             Status::Ready => None,
             Status::Failed(message) => Some(message.clone()),
@@ -289,7 +336,12 @@ impl Render for MainWindow {
             .gap_4()
             .bg(theme.background)
             .text_color(theme.foreground)
-            .child(div().child("qBit").font_bold().text_3xl())
+            .child(
+                h_flex()
+                    .justify_between()
+                    .child(div().child(APP_TITLE).font_bold().text_3xl())
+                    .child(self.render_log_out()),
+            )
             .children(status.map(|status| div().text_color(theme.muted_foreground).child(status)))
             .child(
                 h_flex()

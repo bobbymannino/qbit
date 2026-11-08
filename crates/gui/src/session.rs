@@ -1,29 +1,30 @@
-use std::env;
-
 use qbittorrent::Client;
 
-/// Log in to qBittorrent with the credentials from the environment (or `.env`).
+use crate::credentials::Credentials;
+
+/// Log in to qBittorrent with `credentials`.
 ///
 /// Must run on the Tokio runtime.
 ///
 /// # Errors
 ///
-/// Returns a user-facing message if a variable is missing or the login fails.
-pub async fn login_from_env() -> Result<Client, String> {
-    let host = var("QBITTORRENT_HOST")?;
-    let username = var("QBITTORRENT_USERNAME")?;
-    let password = var("QBITTORRENT_PASSWORD")?;
-
-    let client = Client::new(&host).map_err(|err| err.to_string())?;
+/// Returns a user-facing message if the host is invalid or the login fails.
+pub async fn login(credentials: Credentials) -> Result<Client, String> {
+    let client = Client::new(&credentials.host).map_err(|err| err.to_string())?;
     client
-        .login(&username, &password)
+        .login(&credentials.username, &credentials.password)
         .await
         .map_err(|err| err.to_string())?;
 
     Ok(client)
 }
 
-/// Read a required environment variable.
-fn var(name: &str) -> Result<String, String> {
-    env::var(name).map_err(|_| format!("{name} is not set"))
+/// Accept `minipc:8081` as well as `http://minipc:8081`, defaulting to `http`.
+pub fn normalize_host(host: &str) -> String {
+    let host = host.trim().trim_end_matches('/');
+    if host.contains("://") {
+        host.to_owned()
+    } else {
+        format!("http://{host}")
+    }
 }

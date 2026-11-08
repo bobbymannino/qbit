@@ -1,29 +1,32 @@
+mod login_window;
 mod main_window;
 
 use gpui_kit::{
     AnyWindowHandle, App, AppContext as _, Context, Render, Result, Window, WindowOptions,
     component::Theme,
 };
+pub use login_window::LoginWindow;
 pub use main_window::MainWindow;
 
 /// Defines a window that can be opened.
-pub trait OpenableWindow: Render {
+pub trait OpenableWindow: Render + Sized {
     /// Returns the window options for this window.
     fn window_options(cx: &App) -> WindowOptions;
 
-    /// Create a new instance of this window.
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self;
-
-    /// Creates a new window, opens it, and brings it to the foreground.
-    ///
-    /// # Parameters
-    ///
-    /// - `window`: The window to open.
+    /// Creates a new window with the view `build` returns, opens it, and brings it to the
+    /// foreground.
     ///
     /// # Returns
     ///
     /// A handle to the open window.
-    fn open_new_window(cx: &mut App) -> Result<AnyWindowHandle> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the platform couldn't open the window.
+    fn open_window(
+        cx: &mut App,
+        build: impl FnOnce(&mut Window, &mut Context<Self>) -> Self + 'static,
+    ) -> Result<AnyWindowHandle> {
         let wo = Self::window_options(cx);
 
         let (handle, _) = gpui_kit::open_window(wo, cx, |window, cx| {
@@ -36,7 +39,7 @@ pub trait OpenableWindow: Render {
                 })
                 .detach();
 
-            cx.new(|cx| Self::new(window, cx))
+            cx.new(|cx| build(window, cx))
         })?;
         Ok(handle)
     }
