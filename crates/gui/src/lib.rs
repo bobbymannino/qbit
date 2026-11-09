@@ -7,6 +7,7 @@ mod consts;
 mod credentials;
 mod details_panel;
 mod format;
+mod hotkeys;
 mod runtime;
 mod session;
 mod startup;
@@ -18,6 +19,7 @@ mod windows;
 pub fn run() {
     application().with_assets(AppAssets).run(|cx| {
         init(cx);
+        hotkeys::init(cx);
 
         if let Err(err) = Tokio::init(cx) {
             eprintln!("Failed to start the async runtime: {err}");
