@@ -43,8 +43,7 @@ impl Credentials {
     ///
     /// Returns a message if the credential store can't be written.
     pub fn save(&self) -> Result<(), String> {
-        let secret = serde_json::to_string(self)
-            .map_err(|err| format!("Couldn't encode login: {err}"))?;
+        let secret = serde_json::to_string(self).map_err(|err| format!("Couldn't encode login: {err}"))?;
 
         entry()?
             .set_password(&secret)

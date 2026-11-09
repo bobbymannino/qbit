@@ -25,11 +25,7 @@ const PANEL_WIDTH: f32 = 320.0;
 
 /// A side panel with everything about `torrent`. The close button clears the table's
 /// selection, which hides the panel.
-pub fn details_panel(
-    torrent: &Torrent,
-    table: &Entity<TableState<TorrentTable>>,
-    cx: &App,
-) -> impl IntoElement {
+pub fn details_panel(torrent: &Torrent, table: &Entity<TableState<TorrentTable>>, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
     let percent = torrent.progress * 100.0;
     let table = table.clone();
@@ -111,11 +107,7 @@ pub fn details_panel(
 }
 
 /// A titled group of label/value pairs. Values wrap, so long paths stay readable.
-fn section<const N: usize>(
-    title: &'static str,
-    fields: [(&'static str, String); N],
-    cx: &App,
-) -> impl IntoElement {
+fn section<const N: usize>(title: &'static str, fields: [(&'static str, String); N], cx: &App) -> impl IntoElement {
     let theme = cx.theme();
 
     v_flex()

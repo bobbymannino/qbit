@@ -1,14 +1,12 @@
 use std::time::Duration;
 
 use gpui_kit::{
-    AnyWindowHandle, App, AppContext as _, AsyncApp, Context, Entity, Render, Result,
-    SharedString, Size, Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds,
-    WindowOptions,
+    AnyWindowHandle, App, AppContext as _, AsyncApp, Context, Entity, Render, Result, SharedString, Size, Subscription,
+    Task, TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions,
     assets::IconName,
     base::{StyledExt, h_flex, v_flex},
     component::{
-        ActiveTheme as _, Disableable as _, Sizable as _,
-        Icon,
+        ActiveTheme as _, Disableable as _, Icon, Sizable as _,
         button::{Button, ButtonVariants as _, Toggle, ToggleGroup},
         input::{Input, InputEvent, InputState},
         table::{DataTable, TableState},
@@ -67,12 +65,7 @@ impl MainWindow {
         Self::open_window(cx, move |window, cx| Self::new(window, cx, credentials, client))
     }
 
-    fn new(
-        window: &mut Window,
-        cx: &mut Context<Self>,
-        credentials: Credentials,
-        client: Client,
-    ) -> Self {
+    fn new(window: &mut Window, cx: &mut Context<Self>, credentials: Credentials, client: Client) -> Self {
         let mut rows = TorrentTable::new();
         if let Some(runtime) = Tokio::handle(cx) {
             rows.set_client(client.clone(), runtime);
@@ -82,10 +75,9 @@ impl MainWindow {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search torrents"));
         // Redraw when the selection changes, so the details panel follows it.
         let observe_table = cx.observe(&table, |_, _, cx| cx.notify());
-        let subscriptions = vec![observe_table, cx.subscribe_in(
-            &search,
-            window,
-            |this, search, event: &InputEvent, _, cx| {
+        let subscriptions = vec![
+            observe_table,
+            cx.subscribe_in(&search, window, |this, search, event: &InputEvent, _, cx| {
                 if matches!(event, InputEvent::Change) {
                     let query = search.read(cx).value();
                     this.table.update(cx, |table, cx| {
@@ -93,8 +85,8 @@ impl MainWindow {
                     });
                     cx.notify();
                 }
-            },
-        )];
+            }),
+        ];
 
         Self {
             _refresh: Self::start_refreshing(cx, credentials.clone(), client),
@@ -372,12 +364,7 @@ impl MainWindow {
     }
 
     /// Hand the logged-in client to the table so its play/pause buttons work.
-    fn give_table_client(
-        this: &WeakEntity<Self>,
-        cx: &mut AsyncApp,
-        client: Client,
-        runtime: tokio::runtime::Handle,
-    ) {
+    fn give_table_client(this: &WeakEntity<Self>, cx: &mut AsyncApp, client: Client, runtime: tokio::runtime::Handle) {
         this.update(cx, |this, cx| {
             this.table.update(cx, |table, cx| {
                 table.delegate_mut().set_client(client, runtime);
@@ -418,7 +405,6 @@ impl OpenableWindow for MainWindow {
             ..Default::default()
         }
     }
-
 }
 
 impl Render for MainWindow {
@@ -445,22 +431,18 @@ impl Render for MainWindow {
             )
             .children(status.map(|status| div().text_color(theme.muted_foreground).child(status)))
             .child(
-                h_flex()
-                    .justify_between()
-                    .gap_2()
-                    .child(self.render_filters(cx))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(
-                                Input::new(&self.search)
-                                    .prefix(Icon::new(IconName::Search).small())
-                                    .cleanable(true)
-                                    .small()
-                                    .w(px(220.0)),
-                            )
-                            .child(self.render_bulk_actions(cx)),
-                    ),
+                h_flex().justify_between().gap_2().child(self.render_filters(cx)).child(
+                    h_flex()
+                        .gap_2()
+                        .child(
+                            Input::new(&self.search)
+                                .prefix(Icon::new(IconName::Search).small())
+                                .cleanable(true)
+                                .small()
+                                .w(px(220.0)),
+                        )
+                        .child(self.render_bulk_actions(cx)),
+                ),
             )
             .child(
                 h_flex()

@@ -30,10 +30,7 @@ impl Client {
     pub fn new(host: &str) -> Result<Self, Error> {
         let mut base = Url::parse(host).map_err(|err| Error::InvalidHost(err.to_string()))?;
         if !matches!(base.scheme(), "http" | "https") {
-            return Err(Error::InvalidHost(format!(
-                "unsupported scheme `{}`",
-                base.scheme()
-            )));
+            return Err(Error::InvalidHost(format!("unsupported scheme `{}`", base.scheme())));
         }
 
         // Keep any sub-path (e.g. behind a reverse proxy) when joining API paths.
@@ -54,8 +51,6 @@ impl Client {
 
     /// Resolve an API path, like `api/v2/auth/login`, against the host.
     pub(crate) fn endpoint(&self, path: &str) -> Result<Url, Error> {
-        self.base
-            .join(path)
-            .map_err(|err| Error::InvalidHost(err.to_string()))
+        self.base.join(path).map_err(|err| Error::InvalidHost(err.to_string()))
     }
 }

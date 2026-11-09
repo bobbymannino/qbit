@@ -238,12 +238,7 @@ impl Client {
     ///
     /// qBittorrent 5 renamed `pause`/`resume` to `stop`/`start`, so on a 404 this
     /// retries with `legacy_action` to keep working with qBittorrent 4.
-    async fn post_hashes(
-        &self,
-        action: &str,
-        legacy_action: &str,
-        hashes: &[&str],
-    ) -> Result<(), Error> {
+    async fn post_hashes(&self, action: &str, legacy_action: &str, hashes: &[&str]) -> Result<(), Error> {
         let hashes = hashes.join("|");
 
         let mut status = self.post_torrents_form(action, &hashes).await?;

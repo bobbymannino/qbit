@@ -91,22 +91,11 @@ impl TorrentColumn {
                 .movable(false),
             Self::Name => Column::new("name", "Name").width(px(280.0)).sortable(),
             Self::Size => Column::new("size", "Size").width(px(90.0)).text_right().sortable(),
-            Self::Progress => Column::new("progress", "Progress")
-                .width(px(160.0))
-                .sortable(),
+            Self::Progress => Column::new("progress", "Progress").width(px(160.0)).sortable(),
             Self::Status => Column::new("status", "Status").width(px(140.0)).sortable(),
-            Self::Download => Column::new("dlspeed", "Down")
-                .width(px(100.0))
-                .text_right()
-                .sortable(),
-            Self::Upload => Column::new("upspeed", "Up")
-                .width(px(100.0))
-                .text_right()
-                .sortable(),
-            Self::Ratio => Column::new("ratio", "Ratio")
-                .width(px(70.0))
-                .text_right()
-                .sortable(),
+            Self::Download => Column::new("dlspeed", "Down").width(px(100.0)).text_right().sortable(),
+            Self::Upload => Column::new("upspeed", "Up").width(px(100.0)).text_right().sortable(),
+            Self::Ratio => Column::new("ratio", "Ratio").width(px(70.0)).text_right().sortable(),
         }
     }
 
@@ -371,16 +360,11 @@ impl TableDelegate for TorrentTable {
     }
 
     fn column(&self, col_ix: usize, _cx: &App) -> Column {
-        self.column_at(col_ix).map_or_else(Column::default, TorrentColumn::column)
+        self.column_at(col_ix)
+            .map_or_else(Column::default, TorrentColumn::column)
     }
 
-    fn move_column(
-        &mut self,
-        col_ix: usize,
-        to_ix: usize,
-        _window: &mut Window,
-        _cx: &mut Context<TableState<Self>>,
-    ) {
+    fn move_column(&mut self, col_ix: usize, to_ix: usize, _window: &mut Window, _cx: &mut Context<TableState<Self>>) {
         if self.columns.is_empty() {
             self.columns = TorrentColumn::ALL.to_vec();
         }
@@ -502,13 +486,7 @@ fn progress_cell(torrent: &Torrent) -> AnyElement {
                     .flex_1(),
             )
         })
-        .child(
-            h_flex()
-                .flex_shrink_0()
-                .w(px(PERCENT_WIDTH))
-                .justify_end()
-                .child(label),
-        )
+        .child(h_flex().flex_shrink_0().w(px(PERCENT_WIDTH)).justify_end().child(label))
         .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
         .into_any_element()
 }

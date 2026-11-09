@@ -44,12 +44,7 @@ pub fn start(cx: &mut App) {
 }
 
 /// Show the login form; quit if even that can't open, since there'd be no window at all.
-fn show_login(
-    cx: &mut App,
-    prefill: Option<Credentials>,
-    prefill_is_saved: bool,
-    message: Option<SharedString>,
-) {
+fn show_login(cx: &mut App, prefill: Option<Credentials>, prefill_is_saved: bool, message: Option<SharedString>) {
     if let Err(err) = LoginWindow::open(cx, prefill, prefill_is_saved, message) {
         eprintln!("Failed to open the login window: {err}");
         cx.quit();

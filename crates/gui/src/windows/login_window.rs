@@ -1,6 +1,6 @@
 use gpui_kit::{
-    AnyWindowHandle, App, AppContext as _, Context, Entity, Render, Result, SharedString, Size,
-    Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    AnyWindowHandle, App, AppContext as _, Context, Entity, Render, Result, SharedString, Size, Subscription, Task,
+    TitlebarOptions, Window, WindowBounds, WindowOptions,
     base::{StyledExt, v_flex},
     component::{
         ActiveTheme as _, Disableable as _,
@@ -44,8 +44,7 @@ pub struct LoginWindow {
 impl LoginWindow {
     /// Open the login window.
     ///
-    /// - `prefill`: fills in the form (e.g. saved credentials, or the host and username
-    ///   after logging out).
+    /// - `prefill`: fills in the form (e.g. saved credentials, or the host and username after logging out).
     /// - `prefill_is_saved`: whether `prefill` is exactly what's in the keychain.
     /// - `message`: an error to show above the form.
     ///
@@ -82,16 +81,8 @@ impl LoginWindow {
                 .placeholder("http://localhost:8080")
                 .default_value(host)
         });
-        let username = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("admin")
-                .default_value(username)
-        });
-        let password = cx.new(|cx| {
-            InputState::new(window, cx)
-                .masked(true)
-                .default_value(password)
-        });
+        let username = cx.new(|cx| InputState::new(window, cx).placeholder("admin").default_value(username));
+        let password = cx.new(|cx| InputState::new(window, cx).masked(true).default_value(password));
 
         // Pressing Enter in any field submits the form.
         let subscriptions = [&host, &username, &password]
@@ -151,12 +142,7 @@ impl LoginWindow {
 
     /// Log in on the Tokio runtime; on success save the credentials (if `save`) and swap
     /// this window for the [`MainWindow`].
-    fn start_login(
-        window: &Window,
-        cx: &Context<Self>,
-        credentials: Credentials,
-        save: bool,
-    ) -> Task<()> {
+    fn start_login(window: &Window, cx: &Context<Self>, credentials: Credentials, save: bool) -> Task<()> {
         let Some(runtime) = Tokio::handle(cx) else {
             return cx.spawn_in(window, async move |this, cx| {
                 this.update(cx, |this, cx| {
@@ -189,26 +175,20 @@ impl LoginWindow {
             if save {
                 // The keychain can block (e.g. on an unlock prompt), so keep it off the UI thread.
                 let to_save = credentials.clone();
-                let saved = cx
-                    .background_executor()
-                    .spawn(async move { to_save.save() })
-                    .await;
+                let saved = cx.background_executor().spawn(async move { to_save.save() }).await;
                 if let Err(err) = saved {
                     eprintln!("{err}");
                 }
             }
 
-            cx.update(|window, cx| {
-                match MainWindow::open(cx, credentials, client) {
-                    Ok(_) => window.remove_window(),
-                    Err(err) => {
-                        this.update(cx, |this, cx| {
-                            this.status =
-                                Status::Failed(format!("Couldn't open the main window: {err}").into());
-                            cx.notify();
-                        })
-                        .ok();
-                    }
+            cx.update(|window, cx| match MainWindow::open(cx, credentials, client) {
+                Ok(_) => window.remove_window(),
+                Err(err) => {
+                    this.update(cx, |this, cx| {
+                        this.status = Status::Failed(format!("Couldn't open the main window: {err}").into());
+                        cx.notify();
+                    })
+                    .ok();
                 }
             })
             .ok();
@@ -237,7 +217,10 @@ impl Render for LoginWindow {
         let logging_in = matches!(self.status, Status::LoggingIn);
 
         let field = |label: &'static str, input: Input| {
-            v_flex().gap_1().child(div().text_sm().font_medium().child(label)).child(input)
+            v_flex()
+                .gap_1()
+                .child(div().text_sm().font_medium().child(label))
+                .child(input)
         };
 
         v_flex()
@@ -265,9 +248,7 @@ impl Render for LoginWindow {
                 Input::new(&self.password).mask_toggle().disabled(logging_in),
             ))
             .children(match &self.status {
-                Status::Failed(message) => {
-                    Some(div().text_sm().text_color(theme.danger).child(message.clone()))
-                }
+                Status::Failed(message) => Some(div().text_sm().text_color(theme.danger).child(message.clone())),
                 Status::Idle | Status::LoggingIn => None,
             })
             .child(
