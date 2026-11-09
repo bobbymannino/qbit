@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="linear-gradient-1" x1="100" y1="100" x2="924" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#cba6f7"/>
+      <stop offset="1" stop-color="#89b4fa"/>
+    </linearGradient>
+  </defs>
+  <title>qbit.svg</title>
+  <g id="Layer_1" data-name="Layer 1">
+    <path d="M285 100 L739 100 C841.173 100 924 182.827 924 285 L924 739 C924 841.173 841.173 924 739 924 L285 924 C182.827 924 100 841.173 100 739 L100 285 C100 182.827 182.827 100 285 100 Z" fill="url(#linear-gradient-1)"/>
+    <circle cx="482" cy="437" r="150" fill="none" stroke="#1e1e2e" stroke-width="80"/>
+    <line x1="632" y1="437" x2="632" y2="672" fill="none" stroke="#1e1e2e" stroke-width="80"/>
+    <polygon points="527,652 737,652 632,782" fill="#1e1e2e" stroke="#1e1e2e" stroke-width="20" stroke-linejoin="round"/>
+  </g>
+</svg>

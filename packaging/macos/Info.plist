@@ -8,6 +8,8 @@
     <string>qBit</string>
     <key>CFBundleIdentifier</key>
     <string>com.bobbymannino.qbit</string>
+    <key>CFBundleIconFile</key>
+    <string>qBit</string>
     <key>CFBundleExecutable</key>
     <string>qbit</string>
     <key>CFBundlePackageType</key>

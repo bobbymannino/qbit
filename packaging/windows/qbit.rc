@@ -1,0 +1,4 @@
+// Windows resources linked into qbit.exe by build.rs: the app icon Explorer, the taskbar
+// and the window title bar show. Paths are relative to the package root, where Cargo
+// runs the build script and so the resource compiler.
+1 ICON "packaging/windows/qbit.ico"

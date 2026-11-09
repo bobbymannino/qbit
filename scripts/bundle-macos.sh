@@ -49,6 +49,7 @@ rm -rf "$app" "$artifact.dmg"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 cp "$target_dir/$target/release/$bin_name" "$app/Contents/MacOS/$bin_name"
+cp packaging/macos/qBit.icns "$app/Contents/Resources/"
 
 sed "s/__VERSION__/$version/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist" > /dev/null

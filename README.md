@@ -50,8 +50,9 @@ cd qBit-<version>-linux-<arch>
 # The binary, somewhere on your PATH.
 install -Dm755 qbit ~/.local/bin/qbit
 
-# Optional: an entry in your app launcher.
+# Optional: an entry in your app launcher, with its icon.
 install -Dm644 qbit.desktop ~/.local/share/applications/qbit.desktop
+install -Dm644 qbit.png ~/.local/share/icons/hicolor/512x512/apps/qbit.png
 ```
 
 Make sure `~/.local/bin` is on your `PATH`. qBit stores your password in the

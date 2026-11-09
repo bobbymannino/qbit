@@ -3,5 +3,6 @@ Type=Application
 Name=qBit
 Comment=qBittorrent client
 Exec=qbit
+Icon=qbit
 Terminal=false
 Categories=Network;FileTransfer;P2P;

@@ -5,8 +5,8 @@
 #
 # Builds for the machine it runs on (x86_64 or arm64); set QBIT_TARGET to a Rust target
 # triple to override. Writes dist/qBit-<version>-linux-<arch>.tar.gz, holding the `qbit`
-# binary and a `qbit.desktop` launcher entry. The version defaults to the one in
-# Cargo.toml.
+# binary, a `qbit.desktop` launcher entry and its `qbit.png` icon. The version defaults
+# to the one in Cargo.toml.
 #
 # Needs the development packages for Wayland, X11 (xcb, xkbcommon) and fontconfig;
 # see the Linux job in .github/workflows/release.yml for the Debian/Ubuntu list.
@@ -46,7 +46,7 @@ target_dir="$(cargo metadata --format-version 1 --no-deps \
 rm -rf "$staging" "$dist/$name.tar.gz"
 mkdir -p "$staging"
 cp "$target_dir/$target/release/$bin_name" "$staging/"
-cp packaging/linux/qbit.desktop "$staging/"
+cp packaging/linux/qbit.desktop packaging/linux/qbit.png "$staging/"
 
 tar -C "$dist" -czf "$dist/$name.tar.gz" "$name"
 rm -rf "$staging"
