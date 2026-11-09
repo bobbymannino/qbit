@@ -20,7 +20,7 @@ use qbittorrent::{Client, Torrent};
 use regex::Regex;
 use tokio::runtime::Handle;
 
-use crate::format::{format_bytes, format_speed};
+use crate::format::{format_bytes, format_eta, format_speed};
 
 /// Which torrents the table shows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -67,18 +67,21 @@ enum TorrentColumn {
     Progress,
     Status,
     Download,
+    /// Time left, for torrents that are downloading.
+    Eta,
     Upload,
     Ratio,
 }
 
 impl TorrentColumn {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::Toggle,
         Self::Name,
         Self::Size,
         Self::Progress,
         Self::Status,
         Self::Download,
+        Self::Eta,
         Self::Upload,
         Self::Ratio,
     ];
@@ -95,6 +98,7 @@ impl TorrentColumn {
             Self::Progress => Column::new("progress", "Progress").width(px(160.0)).sortable(),
             Self::Status => Column::new("status", "Status").width(px(140.0)).sortable(),
             Self::Download => Column::new("dlspeed", "Down").width(px(100.0)).text_right().sortable(),
+            Self::Eta => Column::new("eta", "ETA").width(px(80.0)).text_right().sortable(),
             Self::Upload => Column::new("upspeed", "Up").width(px(100.0)).text_right().sortable(),
             Self::Ratio => Column::new("ratio", "Ratio").width(px(70.0)).text_right().sortable(),
         }
@@ -109,6 +113,7 @@ impl TorrentColumn {
             Self::Progress => "progress",
             Self::Status => "status",
             Self::Download => "dlspeed",
+            Self::Eta => "eta",
             Self::Upload => "upspeed",
             Self::Ratio => "ratio",
         }
@@ -116,14 +121,19 @@ impl TorrentColumn {
 
     /// Whether the column's values line up on the right (numbers).
     const fn is_right_aligned(self) -> bool {
-        matches!(self, Self::Size | Self::Download | Self::Upload | Self::Ratio)
+        matches!(
+            self,
+            Self::Size | Self::Download | Self::Eta | Self::Upload | Self::Ratio
+        )
     }
 
     fn cell(self, torrent: &Torrent) -> AnyElement {
         let text: SharedString = match self {
             Self::Progress => return progress_cell(torrent),
-            // Rendered by `TorrentTable::toggle_button`, which has the client.
-            Self::Toggle => SharedString::default(),
+            Self::Eta if torrent.state.is_downloading() => format_eta(torrent.eta).into(),
+            // The toggle is rendered by `TorrentTable::toggle_button`, which has the
+            // client; the ETA is blank unless the torrent is downloading.
+            Self::Toggle | Self::Eta => SharedString::default(),
             Self::Name => torrent.name.clone().into(),
             Self::Size => format_bytes(torrent.size).into(),
             Self::Status => torrent.state.to_string().into(),
@@ -144,6 +154,7 @@ impl TorrentColumn {
             Self::Progress => a.progress.total_cmp(&b.progress),
             Self::Status => a.state.to_string().cmp(&b.state.to_string()),
             Self::Download => a.dlspeed.cmp(&b.dlspeed),
+            Self::Eta => eta_sort_key(a).cmp(&eta_sort_key(b)),
             Self::Upload => a.upspeed.cmp(&b.upspeed),
             Self::Ratio => a.ratio.total_cmp(&b.ratio),
         }
@@ -497,6 +508,12 @@ fn progress_cell(torrent: &Torrent) -> AnyElement {
         .child(h_flex().flex_shrink_0().w(px(PERCENT_WIDTH)).justify_end().child(label))
         .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx))
         .into_any_element()
+}
+
+/// Orders torrents by time left: downloading ones soonest first, then those that will
+/// never finish (`∞`), then everything not downloading (blank).
+const fn eta_sort_key(torrent: &Torrent) -> (bool, i64) {
+    (!torrent.state.is_downloading(), torrent.eta)
 }
 
 /// Narrow a percentage to the `f32` the progress bar takes.
