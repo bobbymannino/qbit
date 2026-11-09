@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, sync::LazyLock};
 
 use gpui_kit::{
     AnyElement, App, ClipboardItem, Context, IntoElement, SharedString, Window,
@@ -17,6 +17,7 @@ use gpui_kit::{
     px,
 };
 use qbittorrent::{Client, Torrent};
+use regex::Regex;
 use tokio::runtime::Handle;
 
 use crate::format::{format_bytes, format_speed};
@@ -208,6 +209,8 @@ impl Actions {
 }
 
 impl TorrentTable {
+    const SEARCHIFY_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\W+").unwrap());
+
     pub const fn new() -> Self {
         Self {
             torrents: Vec::new(),
@@ -308,8 +311,13 @@ impl TorrentTable {
             .count()
     }
 
+    /// Turn a string into a searchable value by removing all non a-z/0-9 characters.
+    fn searchify(value: &String) -> String {
+        Self::SEARCHIFY_PATTERN.replace_all(value, "").to_lowercase()
+    }
+
     fn matches_query(&self, torrent: &Torrent) -> bool {
-        self.query.is_empty() || torrent.name.to_lowercase().contains(&self.query)
+        self.query.is_empty() || Self::searchify(&torrent.name).contains(&Self::searchify(&self.query))
     }
 
     /// The torrent shown in row `row_ix`.

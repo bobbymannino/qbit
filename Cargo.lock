@@ -2770,11 +2770,12 @@ dependencies = [
 
 [[package]]
 name = "gui"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "gpui-kit",
  "keyring",
  "qbittorrent",
+ "regex",
  "serde",
  "serde_json",
  "tokio",
@@ -5072,14 +5073,14 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "qbit"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "gui",
 ]
 
 [[package]]
 name = "qbittorrent"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "reqwest",
  "serde",

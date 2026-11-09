@@ -5,6 +5,7 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
+regex.workspace = true
 gpui-kit.workspace = true
 keyring.workspace = true
 qbittorrent.workspace = true
