@@ -9,24 +9,35 @@ permissions:
 
 jobs:
   build-macos:
-    name: Build macOS (Apple Silicon)
-    # Apple Silicon runner.
+    name: Build macOS (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            target: aarch64-apple-darwin
+          - arch: x86_64
+            # Cross-compiled on the Apple Silicon runner; the macOS SDK covers both.
+            target: x86_64-apple-darwin
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin
+          targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
       - name: Build app and disk image
         run: scripts/bundle-macos.sh "${GITHUB_REF_NAME}"
+        env:
+          QBIT_TARGET: ${{ matrix.target }}
 
       - uses: actions/upload-artifact@v7
         with:
-          name: qBit-macos-arm64
+          name: qBit-macos-${{ matrix.arch }}
           # The disk image, not the bare .app: artifacts don't keep file permissions,
           # which would leave the app's binary non-executable.
           path: dist/*.dmg
@@ -74,8 +85,44 @@ jobs:
           path: dist/*.tar.gz
           if-no-files-found: error
 
+  build-windows:
+    name: Build Windows (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+          - arch: arm64
+            # Native ARM runner, so no cross-compiling toolchain is needed.
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build zip
+        shell: pwsh
+        run: scripts/bundle-windows.ps1 "$env:GITHUB_REF_NAME"
+        env:
+          QBIT_TARGET: ${{ matrix.target }}
+          # Use aws-lc's prebuilt assembly rather than needing NASM on the runner.
+          AWS_LC_SYS_PREBUILT_NASM: "1"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: qBit-windows-${{ matrix.arch }}
+          path: dist/*.zip
+          if-no-files-found: error
+
   release:
-    needs: [build-macos, build-linux]
+    needs: [build-macos, build-linux, build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

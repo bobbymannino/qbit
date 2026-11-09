@@ -1,9 +1,12 @@
 #!/bin/sh
-# Build qBit as an Apple Silicon macOS app and disk image.
+# Build qBit as a macOS app and disk image.
 #
 # Usage: scripts/bundle-macos.sh [version]
 #
-# Writes dist/qBit.app and dist/qBit-<version>-macos-arm64.dmg. The version defaults to the one in Cargo.toml.
+# Builds for the machine it runs on (Apple Silicon or Intel); set QBIT_TARGET to
+# aarch64-apple-darwin or x86_64-apple-darwin to override (either can be built from
+# either kind of Mac). Writes dist/qBit.app and dist/qBit-<version>-macos-<arch>.dmg.
+# The version defaults to the one in Cargo.toml.
 #
 # The app is ad-hoc signed, so macOS will warn that it's from an unidentified developer.
 # Set QBIT_SIGN_IDENTITY to sign with a real identity instead.
@@ -15,11 +18,25 @@ version="${1:-$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)}"
 version="${version#v}"
 app_name="qBit"
 bin_name="qbit"
-target="aarch64-apple-darwin"
+
+if [ -z "${QBIT_TARGET:-}" ]; then
+    case "$(uname -m)" in
+        arm64 | aarch64) QBIT_TARGET="aarch64-apple-darwin" ;;
+        x86_64) QBIT_TARGET="x86_64-apple-darwin" ;;
+        *) echo "Unsupported architecture: $(uname -m); set QBIT_TARGET" >&2; exit 1 ;;
+    esac
+fi
+target="$QBIT_TARGET"
+
+case "$target" in
+    aarch64-*) arch="arm64" ;;
+    x86_64-*) arch="x86_64" ;;
+    *) echo "Unsupported target: $target" >&2; exit 1 ;;
+esac
 
 dist="dist"
 app="$dist/$app_name.app"
-artifact="$dist/$app_name-$version-macos-arm64"
+artifact="$dist/$app_name-$version-macos-$arch"
 
 echo "Building $app_name $version for $target"
 cargo build --release --locked --target "$target"
