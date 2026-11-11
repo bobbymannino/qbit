@@ -1,4 +1,4 @@
-use std::{cell::Cell, cmp::Ordering, collections::BTreeMap, rc::Rc, sync::LazyLock};
+use std::{cell::Cell, cmp::Ordering, collections::BTreeMap, rc::Rc};
 
 use gpui_kit::{
     AnyElement, App, ClipboardItem, Context, Div, IntoElement, MouseButton, Pixels, SharedString, Stateful, Window,
@@ -18,7 +18,6 @@ use gpui_kit::{
     px,
 };
 use qbittorrent::{Client, Torrent};
-use regex::Regex;
 use tokio::runtime::Handle;
 
 use crate::{
@@ -310,8 +309,6 @@ impl DeleteRequest {
 }
 
 impl TorrentTable {
-    const SEARCHIFY_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\W+").unwrap());
-
     pub const fn new() -> Self {
         Self {
             torrents: Vec::new(),
@@ -517,9 +514,14 @@ impl TorrentTable {
             .count()
     }
 
-    /// Turn a string into a searchable value by removing all non a-z/0-9 characters.
-    fn searchify(value: &String) -> String {
-        Self::SEARCHIFY_PATTERN.replace_all(value, "").to_lowercase()
+    /// Turn a string into a searchable value: lowercase, keeping only letters, digits
+    /// and underscores, so `the.show s01` matches `The Show S01`.
+    fn searchify(value: &str) -> String {
+        value
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '_')
+            .flat_map(char::to_lowercase)
+            .collect()
     }
 
     fn matches_query(&self, torrent: &Torrent) -> bool {
@@ -761,9 +763,175 @@ const fn percent_f32(percent: f64) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use gpui_kit::px;
+    use gpui_kit::{component::table::ColumnSort, px};
+    use qbittorrent::Torrent;
+    use serde_json::json;
 
-    use super::{TorrentColumn, TorrentTable};
+    use super::{Filter, TorrentColumn, TorrentTable};
+
+    /// A torrent named `name` in `state`, with `hash` and everything else zeroed.
+    fn torrent(hash: &str, name: &str, state: &str) -> Torrent {
+        serde_json::from_value(json!({
+            "hash": hash,
+            "name": name,
+            "size": 0,
+            "progress": 0.0,
+            "state": state,
+            "dlspeed": 0,
+            "upspeed": 0,
+            "eta": 8_640_000,
+            "ratio": 0.0,
+            "num_seeds": 0,
+            "num_leechs": 0,
+            "added_on": 0,
+        }))
+        .unwrap()
+    }
+
+    /// A table showing `torrents`.
+    fn table(torrents: Vec<Torrent>) -> TorrentTable {
+        let mut table = TorrentTable::new();
+        table.set_torrents(torrents);
+        table
+    }
+
+    /// The hashes of the torrents shown, in order.
+    fn shown(table: &TorrentTable) -> Vec<&str> {
+        (0..table.torrents.len())
+            .filter_map(|row_ix| table.hash_at(row_ix))
+            .collect()
+    }
+
+    fn mixed() -> Vec<Torrent> {
+        vec![
+            torrent("a", "Ubuntu 24.04", "downloading"),
+            torrent("b", "Debian 12", "uploading"),
+            torrent("c", "Fedora 41", "stoppedDL"),
+            torrent("d", "Arch", "pausedUP"),
+            torrent("e", "Mint", "stalledDL"),
+        ]
+    }
+
+    #[test]
+    fn stops_loading_once_torrents_arrive() {
+        let mut table = TorrentTable::new();
+        assert!(table.loading);
+        table.set_torrents(Vec::new());
+        assert!(!table.loading);
+    }
+
+    #[test]
+    fn filters_by_state() {
+        let mut table = table(mixed());
+        assert_eq!(shown(&table), ["a", "b", "c", "d", "e"]);
+
+        table.set_filter(Filter::Downloading);
+        assert_eq!(shown(&table), ["a", "e"]);
+        table.set_filter(Filter::Seeding);
+        assert_eq!(shown(&table), ["b"]);
+        table.set_filter(Filter::Stopped);
+        assert_eq!(shown(&table), ["c", "d"]);
+    }
+
+    #[test]
+    fn counts_every_filter_whichever_is_shown() {
+        let mut table = table(mixed());
+        table.set_filter(Filter::Seeding);
+
+        assert_eq!(table.count(Filter::All), 5);
+        assert_eq!(table.count(Filter::Downloading), 2);
+        assert_eq!(table.count(Filter::Seeding), 1);
+        assert_eq!(table.count(Filter::Stopped), 2);
+    }
+
+    #[test]
+    fn searches_ignoring_case_and_punctuation() {
+        let mut table = table(vec![
+            torrent("a", "The.Show.S01E02.1080p", "downloading"),
+            torrent("b", "Another Show", "downloading"),
+        ]);
+
+        table.set_query("the show s01");
+        assert_eq!(shown(&table), ["a"]);
+        table.set_query("  SHOW ");
+        assert_eq!(shown(&table), ["a", "b"]);
+        table.set_query("missing");
+        assert_eq!(shown(&table), [""; 0]);
+        table.set_query("");
+        assert_eq!(shown(&table), ["a", "b"]);
+    }
+
+    #[test]
+    fn counts_only_torrents_matching_the_search() {
+        let mut table = table(mixed());
+        table.set_query("ubuntu");
+        assert_eq!(table.count(Filter::All), 1);
+        assert_eq!(table.count(Filter::Seeding), 0);
+    }
+
+    #[test]
+    fn keeps_the_sort_when_torrents_refresh() {
+        let mut table = table(mixed());
+        table.sort = Some((TorrentColumn::Name, ColumnSort::Ascending));
+        table.set_torrents(mixed());
+        assert_eq!(shown(&table), ["d", "b", "c", "e", "a"]);
+
+        table.sort = Some((TorrentColumn::Name, ColumnSort::Descending));
+        table.set_torrents(mixed());
+        assert_eq!(shown(&table), ["a", "e", "c", "b", "d"]);
+
+        table.sort = Some((TorrentColumn::Name, ColumnSort::Default));
+        table.set_torrents(mixed());
+        assert_eq!(shown(&table), ["a", "b", "c", "d", "e"]);
+    }
+
+    #[test]
+    fn sorts_etas_soonest_first_and_not_downloading_last() {
+        let mut soon = torrent("soon", "", "downloading");
+        soon.eta = 60;
+        let mut later = torrent("later", "", "downloading");
+        later.eta = 3_600;
+        let never = torrent("never", "", "stalledDL");
+        let seeding = torrent("seeding", "", "uploading");
+
+        let mut table = TorrentTable::new();
+        table.sort = Some((TorrentColumn::Eta, ColumnSort::Ascending));
+        table.set_torrents(vec![seeding, never, later, soon]);
+        assert_eq!(shown(&table), ["soon", "later", "never", "seeding"]);
+    }
+
+    #[test]
+    fn finds_rows_by_hash() {
+        let mut table = table(mixed());
+        table.set_filter(Filter::Stopped);
+
+        assert_eq!(table.row_of("d"), Some(1));
+        assert_eq!(table.row_of("a"), None);
+        assert_eq!(
+            table.torrent_at(0).map(|torrent| torrent.name.as_str()),
+            Some("Fedora 41")
+        );
+        assert!(table.torrent_at(2).is_none());
+    }
+
+    #[test]
+    fn needs_a_client_to_send_requests() {
+        let table = table(mixed());
+        assert!(!table.can_send());
+        assert!(table.send_limit("a", true, 1024).is_none());
+        assert!(table.send_global_limit(true, 1024).is_none());
+    }
+
+    #[test]
+    fn remembers_a_click_on_the_selected_row_once() {
+        let mut table = TorrentTable::new();
+        table.pressed_selected_row = Some(2);
+        assert!(!table.take_reselected(1));
+        assert!(!table.take_reselected(2));
+
+        table.pressed_selected_row = Some(2);
+        assert!(table.take_reselected(2));
+    }
 
     #[test]
     fn keeps_a_saved_column_order() {

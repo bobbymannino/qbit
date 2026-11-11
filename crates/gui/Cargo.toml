@@ -10,7 +10,6 @@ flate2.workspace = true
 gpui-kit.workspace = true
 keyring.workspace = true
 qbittorrent.workspace = true
-regex.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

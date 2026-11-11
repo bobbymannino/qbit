@@ -175,9 +175,8 @@ impl SpeedLimits {
             return None;
         }
 
-        // Empty (or 0) is unlimited; anything unparseable is put back on the next sync.
-        let kib = if text.is_empty() { 0 } else { text.parse::<u64>().ok()? };
-        let bytes = kib.saturating_mul(BYTES_PER_KIB);
+        // Anything unparseable is put back on the next sync.
+        let bytes = parse_limit(text)?;
         let request = send(bytes)?;
 
         *pending = Some(format_limit(i64::try_from(bytes).unwrap_or(i64::MAX)));
@@ -203,11 +202,72 @@ impl SpeedLimits {
     }
 }
 
+/// The KiB/s typed in an input as bytes per second; empty (or `0`) is `0`, unlimited.
+fn parse_limit(text: &str) -> Option<u64> {
+    let kib = if text.is_empty() { 0 } else { text.parse::<u64>().ok()? };
+    Some(kib.saturating_mul(BYTES_PER_KIB))
+}
+
 /// A limit in bytes per second as the KiB/s typed in the inputs; empty for unlimited.
 fn format_limit(limit: i64) -> String {
     match u64::try_from(limit) {
         // Round up, so a limit under 1 KiB/s doesn't show as 0 (unlimited).
         Ok(bytes) if bytes > 0 => bytes.div_ceil(BYTES_PER_KIB).to_string(),
         _ => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_limit, parse_limit};
+
+    #[test]
+    fn parses_kib_into_bytes() {
+        assert_eq!(parse_limit("500"), Some(512_000));
+        assert_eq!(parse_limit("1"), Some(1024));
+    }
+
+    #[test]
+    fn parses_empty_and_zero_as_unlimited() {
+        assert_eq!(parse_limit(""), Some(0));
+        assert_eq!(parse_limit("0"), Some(0));
+    }
+
+    #[test]
+    fn rejects_what_isnt_a_number() {
+        assert_eq!(parse_limit("fast"), None);
+        assert_eq!(parse_limit("-5"), None);
+        assert_eq!(parse_limit("1.5"), None);
+    }
+
+    #[test]
+    fn saturates_huge_limits() {
+        assert_eq!(parse_limit(&u64::MAX.to_string()), Some(u64::MAX));
+    }
+
+    #[test]
+    fn formats_bytes_as_kib() {
+        assert_eq!(format_limit(512_000), "500");
+        assert_eq!(format_limit(1024), "1");
+    }
+
+    #[test]
+    fn rounds_limits_under_a_kib_up() {
+        assert_eq!(format_limit(1), "1");
+        assert_eq!(format_limit(1025), "2");
+    }
+
+    #[test]
+    fn formats_unlimited_as_empty() {
+        assert_eq!(format_limit(0), "");
+        assert_eq!(format_limit(-1), "");
+    }
+
+    #[test]
+    fn round_trips_what_was_typed() {
+        for typed in ["", "1", "500", "102400"] {
+            let bytes = parse_limit(typed).map(i64::try_from);
+            assert_eq!(bytes.map(|bytes| format_limit(bytes.unwrap())), Some(typed.to_owned()));
+        }
     }
 }

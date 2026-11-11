@@ -114,3 +114,132 @@ impl MainData {
         serde_json::from_value(Value::Object(self.server_state.clone())).ok()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::{MainData, Response};
+
+    /// A torrent's full set of required fields.
+    fn torrent(name: &str, added_on: i64) -> Value {
+        json!({
+            "name": name,
+            "size": 0,
+            "progress": 0.0,
+            "state": "downloading",
+            "dlspeed": 0,
+            "upspeed": 0,
+            "eta": 0,
+            "ratio": 0.0,
+            "num_seeds": 0,
+            "num_leechs": 0,
+            "added_on": added_on,
+        })
+    }
+
+    fn apply(data: &mut MainData, update: Value) {
+        data.apply(serde_json::from_value::<Response>(update).unwrap());
+    }
+
+    fn names(data: &MainData) -> Vec<String> {
+        data.torrents().into_iter().map(|torrent| torrent.name).collect()
+    }
+
+    #[test]
+    fn starts_by_asking_for_everything() {
+        let data = MainData::new();
+        assert_eq!(data.rid, 0);
+        assert_eq!(names(&data), [""; 0]);
+        assert_eq!(data.transfer(), None);
+    }
+
+    #[test]
+    fn lists_torrents_oldest_first_with_their_hash() {
+        let mut data = MainData::new();
+        apply(
+            &mut data,
+            json!({
+                "rid": 1,
+                "full_update": true,
+                "torrents": { "new": torrent("New", 200), "old": torrent("Old", 100) },
+            }),
+        );
+
+        let torrents = data.torrents();
+        assert_eq!(data.rid, 1);
+        assert_eq!(torrents.len(), 2);
+        assert_eq!(torrents[0].hash, "old");
+        assert_eq!(torrents[1].hash, "new");
+    }
+
+    #[test]
+    fn merges_changed_fields_into_known_torrents() {
+        let mut data = MainData::new();
+        apply(&mut data, json!({ "rid": 1, "torrents": { "a": torrent("A", 0) } }));
+        apply(&mut data, json!({ "rid": 2, "torrents": { "a": { "dlspeed": 512 } } }));
+
+        let torrents = data.torrents();
+        assert_eq!(data.rid, 2);
+        assert_eq!(torrents[0].name, "A");
+        assert_eq!(torrents[0].dlspeed, 512);
+    }
+
+    #[test]
+    fn drops_removed_torrents() {
+        let mut data = MainData::new();
+        apply(
+            &mut data,
+            json!({ "rid": 1, "torrents": { "a": torrent("A", 0), "b": torrent("B", 1) } }),
+        );
+        apply(&mut data, json!({ "rid": 2, "torrents_removed": ["a"] }));
+        assert_eq!(names(&data), ["B"]);
+    }
+
+    #[test]
+    fn replaces_everything_on_a_full_update() {
+        let mut data = MainData::new();
+        apply(&mut data, json!({ "rid": 1, "torrents": { "a": torrent("A", 0) } }));
+        apply(
+            &mut data,
+            json!({ "rid": 2, "full_update": true, "torrents": { "b": torrent("B", 0) } }),
+        );
+        assert_eq!(names(&data), ["B"]);
+    }
+
+    #[test]
+    fn leaves_out_torrents_missing_fields() {
+        let mut data = MainData::new();
+        apply(
+            &mut data,
+            json!({ "rid": 1, "torrents": { "a": torrent("A", 0), "b": { "name": "B" } } }),
+        );
+        assert_eq!(names(&data), ["A"]);
+    }
+
+    #[test]
+    fn merges_global_stats_and_limits() {
+        let mut data = MainData::new();
+        apply(
+            &mut data,
+            json!({
+                "rid": 1,
+                "server_state": {
+                    "dl_info_speed": 10,
+                    "up_info_speed": 20,
+                    "dl_info_data": 30,
+                    "up_info_data": 40,
+                    "dl_rate_limit": 1024,
+                    "up_rate_limit": 0,
+                },
+            }),
+        );
+        apply(&mut data, json!({ "rid": 2, "server_state": { "dl_info_speed": 99 } }));
+
+        let transfer = data.transfer().unwrap();
+        assert_eq!(transfer.dl_info_speed, 99);
+        assert_eq!(transfer.up_info_speed, 20);
+        assert_eq!(transfer.dl_rate_limit, 1024);
+        assert_eq!(transfer.up_rate_limit, 0);
+    }
+}
