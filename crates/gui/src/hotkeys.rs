@@ -1,6 +1,8 @@
 use gpui_kit::{App, KeyBinding, Menu, MenuItem, SystemMenuType};
 
-pub use actions::{CloseWindow, Quit};
+pub use actions::{CloseWindow, Quit, ToggleSettings};
+
+use crate::windows::SettingsWindow;
 
 // `actions!` derives `PartialEq` without `Eq`, which the workspace lints deny.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -12,6 +14,8 @@ mod actions {
             Quit,
             /// Close the focused window; closing the last one quits the app.
             CloseWindow,
+            /// Open the settings window, or close it if it's already open.
+            ToggleSettings,
         ]
     );
 }
@@ -20,6 +24,7 @@ mod actions {
 pub fn init(cx: &mut App) {
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(close_window);
+    cx.on_action(|_: &ToggleSettings, cx| SettingsWindow::toggle(cx));
 
     cx.bind_keys([
         KeyBinding::new(if cfg!(target_os = "macos") { "cmd-q" } else { "ctrl-q" }, Quit, None),
@@ -28,11 +33,18 @@ pub fn init(cx: &mut App) {
             CloseWindow,
             None,
         ),
+        KeyBinding::new(
+            if cfg!(target_os = "macos") { "cmd-," } else { "ctrl-," },
+            ToggleSettings,
+            None,
+        ),
     ]);
 
     // The first menu is the app menu on macOS. Each item shows its key binding.
     cx.set_menus([
         Menu::new("qBit").items([
+            MenuItem::action("Settings…", ToggleSettings),
+            MenuItem::separator(),
             MenuItem::os_submenu("Services", SystemMenuType::Services),
             MenuItem::separator(),
             MenuItem::action("Quit qBit", Quit),

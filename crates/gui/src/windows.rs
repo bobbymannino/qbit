@@ -1,11 +1,13 @@
 mod login_window;
 mod main_window;
+mod settings_window;
 
 use gpui_kit::{
     AnyWindowHandle, App, AppContext as _, Context, Render, Result, Window, WindowOptions, component::Theme,
 };
 pub use login_window::LoginWindow;
 pub use main_window::MainWindow;
+pub use settings_window::SettingsWindow;
 
 /// Defines a window that can be opened.
 pub trait OpenableWindow: Render + Sized {
