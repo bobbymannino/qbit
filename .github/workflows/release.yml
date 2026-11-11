@@ -38,9 +38,12 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: qBit-macos-${{ matrix.arch }}
-          # The disk image, not the bare .app: artifacts don't keep file permissions,
-          # which would leave the app's binary non-executable.
-          path: dist/*.dmg
+          # The disk image, plus the app as a tarball for in-app updates; not the bare
+          # .app, as artifacts don't keep file permissions, which would leave the app's
+          # binary non-executable.
+          path: |
+            dist/*.dmg
+            dist/*.app.tar.gz
           if-no-files-found: error
 
   build-linux:
