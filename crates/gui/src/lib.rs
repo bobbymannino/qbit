@@ -1,6 +1,6 @@
 use gpui_kit::{application, component::init};
 
-use crate::{assets::AppAssets, runtime::Tokio, windows::SettingsWindow};
+use crate::{assets::AppAssets, runtime::Tokio, update::Updater, windows::SettingsWindow};
 
 mod assets;
 mod consts;
@@ -43,5 +43,6 @@ pub fn run() {
         .detach();
 
         startup::start(cx);
+        Updater::check_on_startup(cx);
     });
 }

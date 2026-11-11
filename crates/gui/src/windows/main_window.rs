@@ -6,7 +6,7 @@ use gpui_kit::{
     assets::IconName,
     base::{StyledExt, h_flex, v_flex},
     component::{
-        ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+        ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
         button::{Button, ButtonVariants as _, Toggle, ToggleGroup},
         input::{Input, InputEvent, InputState},
         table::{DataTable, TableEvent, TableState},
@@ -28,6 +28,7 @@ use crate::{
     session::login,
     speed_limits::SpeedLimits,
     torrent_table::{Filter, TorrentTable},
+    update::Updater,
     windows::{LoginWindow, OpenableWindow, SettingsWindow, client_title_bar},
 };
 
@@ -171,6 +172,13 @@ impl MainWindow {
             })
             .detach();
         }));
+
+        // Offer to install an update the startup check finds, whether it finished before
+        // this window opened or finishes later.
+        subscriptions.push(cx.observe_global_in::<Updater>(window, |_, window, cx| {
+            Self::prompt_for_update(window, cx);
+        }));
+        window.defer(cx, Self::prompt_for_update);
 
         // Track the session while this window is open, for the settings window's log out button.
         let handle = window.window_handle();
@@ -434,6 +442,35 @@ impl MainWindow {
                     .child(speed(IconName::ArrowDown, down, "Total download speed"))
                     .child(speed(IconName::ArrowUp, up, "Total upload speed")),
             )
+    }
+
+    /// Ask whether to install the update the startup check found, if the user hasn't
+    /// been asked yet.
+    fn prompt_for_update(window: &mut Window, cx: &mut App) {
+        let Some(release) = Updater::take_startup_prompt(cx) else { return };
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let url = release.url.clone();
+            alert
+                .confirm()
+                .title("Update available")
+                .description(format!(
+                    "qBit v{} is available. Download and install it now? qBit will restart.",
+                    release.version
+                ))
+                .child(
+                    Button::new("whats-new")
+                        .link()
+                        .label("What's new")
+                        .small()
+                        .on_click(move |_, _, cx| cx.open_url(&url)),
+                )
+                .ok_text("Install and restart")
+                .cancel_text("Not now")
+                .on_ok(|_, _, cx| {
+                    Updater::install(cx);
+                    true
+                })
+        });
     }
 
     /// Hand the logged-in client to the table so its play/pause buttons work.
