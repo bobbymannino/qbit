@@ -14,6 +14,7 @@ mod speed_limits;
 mod startup;
 mod theme;
 mod torrent_table;
+mod update;
 mod windows;
 
 /// Run the desktop application.
