@@ -165,12 +165,13 @@ fn section<const N: usize>(title: &'static str, fields: [(&'static str, String);
 fn limits_section(limits: &SpeedLimits, enabled: bool, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
 
-    let field = |label: &'static str, input: &Entity<InputState>, direction: Direction| {
+    let field = |id: &'static str, label: &'static str, input: &Entity<InputState>, direction: Direction| {
         v_flex()
             .gap_0p5()
             .child(div().text_xs().text_color(theme.muted_foreground).child(label))
             .child(
                 Input::new(input)
+                    .id(id)
                     .suffix(div().text_xs().text_color(theme.muted_foreground).child("KiB/s"))
                     .small()
                     .disabled(!enabled || limits.is_sending(direction)),
@@ -186,8 +187,18 @@ fn limits_section(limits: &SpeedLimits, enabled: bool, cx: &App) -> impl IntoEle
                 .text_color(theme.muted_foreground)
                 .child("SPEED LIMITS"),
         )
-        .child(field("Max download speed", &limits.download, Direction::Download))
-        .child(field("Max upload speed", &limits.upload, Direction::Upload))
+        .child(field(
+            "max-download",
+            "Max download speed",
+            &limits.download,
+            Direction::Download,
+        ))
+        .child(field(
+            "max-upload",
+            "Max upload speed",
+            &limits.upload,
+            Direction::Upload,
+        ))
 }
 
 /// `value`, or `—` when it's empty.
@@ -207,4 +218,216 @@ fn or_dash(value: &str) -> String {
 )]
 const fn percent_f32(percent: f64) -> f32 {
     percent as f32
+}
+
+#[cfg(test)]
+mod ui_tests {
+    use gpui_kit::{
+        AnyWindowHandle, App, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render, Styled as _,
+        Subscription, TestAppContext, Window,
+        component::table::TableState,
+        div,
+        test::{TestQueryExt as _, TestWindowExt as _},
+    };
+    use qbittorrent::Torrent;
+
+    use super::details_panel;
+    use crate::{
+        speed_limits::{Limits, SpeedLimits},
+        test_support::{MockQbittorrent, open_window, torrent},
+        torrent_table::TorrentTable,
+    };
+
+    /// The details panel for the table's selected torrent, as the main window shows it.
+    struct Host {
+        table: Entity<TableState<TorrentTable>>,
+        limits: SpeedLimits,
+        _observe_table: Subscription,
+    }
+
+    impl Render for Host {
+        fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let table = self.table.read(cx);
+            let torrent = table
+                .selected_row()
+                .and_then(|row_ix| table.delegate().torrent_at(row_ix))
+                .cloned();
+            div().size_full().children(torrent.map(|torrent| {
+                self.limits.sync(&torrent.hash, Limits::from(&torrent), window, cx);
+                details_panel(&torrent, &self.table, &self.limits, cx).into_any_element()
+            }))
+        }
+    }
+
+    type View = (AnyWindowHandle, Entity<Host>);
+
+    /// Show `torrents`, logged in to `qbittorrent` if given, with the first selected.
+    fn open(cx: &mut TestAppContext, torrents: Vec<Torrent>, qbittorrent: Option<&MockQbittorrent>) -> View {
+        let view = open_window(cx, |window, cx| {
+            cx.new(|cx| {
+                let mut rows = TorrentTable::new();
+                rows.set_torrents(torrents);
+                if let Some(qbittorrent) = qbittorrent {
+                    rows.set_client(qbittorrent.client.clone(), qbittorrent.runtime.handle().clone());
+                }
+                let table = cx.new(|cx| TableState::new(rows, window, cx));
+                Host {
+                    _observe_table: cx.observe(&table, |_, _, cx| cx.notify()),
+                    table,
+                    limits: SpeedLimits::new(window, cx),
+                }
+            })
+        });
+        select(cx, &view, 0);
+        view
+    }
+
+    fn select(cx: &TestAppContext, (_, host): &View, row_ix: usize) {
+        cx.update(|cx| {
+            let table = host.read(cx).table.clone();
+            table.update(cx, |table, cx| table.set_selected_row(row_ix, cx));
+        });
+    }
+
+    fn selected(cx: &TestAppContext, (_, host): &View) -> Option<usize> {
+        cx.update(|cx| host.read(cx).table.read(cx).selected_row())
+    }
+
+    /// Render a frame, then run `f` on the window.
+    fn with_window<R>(cx: &mut TestAppContext, (handle, _): &View, f: impl FnOnce(&mut Window, &mut App) -> R) -> R {
+        cx.run_until_parked();
+        cx.update_window(*handle, |_, window, cx| {
+            window.render_frame(cx);
+            f(window, cx)
+        })
+        .unwrap()
+    }
+
+    fn disabled(cx: &mut TestAppContext, view: &View, id: &'static str) -> bool {
+        with_window(cx, view, |window, _| window.find(id).disabled().unwrap_or(false))
+    }
+
+    /// Whether clicking the `id` input lets the user type in it.
+    fn editable(cx: &mut TestAppContext, view: &View, id: &'static str) -> bool {
+        with_window(cx, view, |window, cx| window.click(id, cx));
+        with_window(cx, view, |window, _| window.find(id).focused().unwrap_or(false))
+    }
+
+    /// Click the element labelled `label`, like a dialog's buttons.
+    fn click_label(window: &mut Window, label: &str, cx: &mut App) {
+        let id = window
+            .find_by_label(label)
+            .path()
+            .last()
+            .cloned()
+            .expect("an identified element");
+        window.click(id, cx);
+    }
+
+    fn mixed() -> Vec<Torrent> {
+        let mut limited = torrent("a", "Ubuntu", "downloading");
+        limited.dl_limit = 512_000;
+        limited.up_limit = 1024;
+        vec![limited, torrent("b", "Debian", "uploading")]
+    }
+
+    #[gpui_kit::test]
+    fn shows_the_selected_torrent(cx: &mut TestAppContext) {
+        let view = open(cx, mixed(), None);
+        assert!(with_window(cx, &view, |window, _| window
+            .try_find("close-details")
+            .is_some()));
+    }
+
+    #[gpui_kit::test]
+    fn is_hidden_without_a_selection(cx: &mut TestAppContext) {
+        let view = open(cx, mixed(), None);
+        cx.update(|cx| {
+            let table = view.1.read(cx).table.clone();
+            table.update(cx, TableState::clear_selection);
+        });
+        assert!(with_window(cx, &view, |window, _| window
+            .try_find("close-details")
+            .is_none()));
+    }
+
+    #[gpui_kit::test]
+    fn closes_by_clearing_the_selection(cx: &mut TestAppContext) {
+        let view = open(cx, mixed(), None);
+        with_window(cx, &view, |window, cx| window.click("close-details", cx));
+
+        assert_eq!(selected(cx, &view), None);
+        assert!(with_window(cx, &view, |window, _| window
+            .try_find("close-details")
+            .is_none()));
+    }
+
+    #[gpui_kit::test]
+    fn shows_the_torrents_speed_limits(cx: &mut TestAppContext) {
+        let view = open(cx, mixed(), None);
+        let shown = |cx: &mut TestAppContext| {
+            with_window(cx, &view, |window, _| {
+                let value = |id: &'static str| window.find(id).value().unwrap_or_default().to_owned();
+                (value("max-download"), value("max-upload"))
+            })
+        };
+        assert_eq!(shown(cx), ("500".to_owned(), "1".to_owned()));
+
+        select(cx, &view, 1);
+        assert_eq!(shown(cx), (String::new(), String::new()));
+    }
+
+    #[gpui_kit::test]
+    fn disables_changes_until_logged_in(cx: &mut TestAppContext) {
+        let view = open(cx, mixed(), None);
+        assert!(disabled(cx, &view, "delete-torrent"));
+        assert!(!editable(cx, &view, "max-download"));
+        assert!(!editable(cx, &view, "max-upload"));
+    }
+
+    #[gpui_kit::test]
+    fn enables_changes_once_logged_in(cx: &mut TestAppContext) {
+        let qbittorrent = MockQbittorrent::start();
+        let view = open(cx, mixed(), Some(&qbittorrent));
+        assert!(!disabled(cx, &view, "delete-torrent"));
+        assert!(editable(cx, &view, "max-download"));
+        assert!(editable(cx, &view, "max-upload"));
+    }
+
+    #[gpui_kit::test]
+    fn deletes_the_torrent_once_confirmed(cx: &mut TestAppContext) {
+        let qbittorrent = MockQbittorrent::start();
+        let view = open(cx, mixed(), Some(&qbittorrent));
+
+        with_window(cx, &view, |window, cx| window.click("delete-torrent", cx));
+        with_window(cx, &view, |window, cx| click_label(window, "Delete", cx));
+
+        let request = qbittorrent.wait_for("/api/v2/torrents/delete");
+        assert_eq!(String::from_utf8_lossy(&request.body), "hashes=a&deleteFiles=false");
+    }
+
+    #[gpui_kit::test]
+    fn deletes_the_files_too_if_asked(cx: &mut TestAppContext) {
+        let qbittorrent = MockQbittorrent::start();
+        let view = open(cx, mixed(), Some(&qbittorrent));
+
+        with_window(cx, &view, |window, cx| window.click("delete-torrent", cx));
+        with_window(cx, &view, |window, cx| window.click("delete-files", cx));
+        with_window(cx, &view, |window, cx| click_label(window, "Delete", cx));
+
+        let request = qbittorrent.wait_for("/api/v2/torrents/delete");
+        assert_eq!(String::from_utf8_lossy(&request.body), "hashes=a&deleteFiles=true");
+    }
+
+    #[gpui_kit::test]
+    fn deletes_nothing_when_cancelled(cx: &mut TestAppContext) {
+        let qbittorrent = MockQbittorrent::start();
+        let view = open(cx, mixed(), Some(&qbittorrent));
+
+        with_window(cx, &view, |window, cx| window.click("delete-torrent", cx));
+        with_window(cx, &view, |window, cx| click_label(window, "Cancel", cx));
+
+        cx.run_until_parked();
+        assert_eq!(qbittorrent.requests().len(), 0);
+    }
 }
