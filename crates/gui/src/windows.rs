@@ -3,7 +3,10 @@ mod main_window;
 mod settings_window;
 
 use gpui_kit::{
-    AnyWindowHandle, App, AppContext as _, Context, Render, Result, Window, WindowOptions, component::Theme,
+    AnyWindowHandle, App, AppContext as _, Context, Decorations, Render, Result, SharedString, Window, WindowOptions,
+    component::{Theme, TitleBar},
+    div,
+    prelude::*,
 };
 pub use login_window::LoginWindow;
 pub use main_window::MainWindow;
@@ -44,4 +47,14 @@ pub trait OpenableWindow: Render + Sized {
         })?;
         Ok(handle)
     }
+}
+
+/// Returns a title bar to draw at the top of the window when the window manager won't draw one.
+///
+/// gpui asks for server-side decorations, which macOS, Windows, X11 and most Wayland
+/// compositors (KDE, Sway, …) provide. Some, notably GNOME, refuse and leave the window
+/// client-decorated, in which case the app has to draw its own title bar and controls.
+pub fn client_title_bar(window: &Window, title: impl Into<SharedString>) -> Option<TitleBar> {
+    let client_decorated = matches!(window.window_decorations(), Decorations::Client { .. });
+    (cfg!(target_os = "linux") && client_decorated).then(|| TitleBar::new().child(div().text_sm().child(title.into())))
 }
