@@ -1,6 +1,6 @@
 use gpui_kit::{application, component::init};
 
-use crate::{assets::AppAssets, runtime::Tokio};
+use crate::{assets::AppAssets, runtime::Tokio, windows::SettingsWindow};
 
 mod assets;
 mod consts;
@@ -30,8 +30,12 @@ pub fn run() {
             eprintln!("Failed to load the Catppuccin theme: {err}");
         }
 
+        // Quit once only the settings window (or nothing) is left, so it doesn't keep the
+        // app running after the main window closes. Logging in or out opens the next
+        // window before closing the old one, so that doesn't count.
         cx.on_window_closed(|cx, _window| {
-            if cx.windows().is_empty() {
+            let settings = SettingsWindow::handle(cx);
+            if cx.windows().iter().all(|handle| Some(*handle) == settings) {
                 cx.quit();
             }
         })
