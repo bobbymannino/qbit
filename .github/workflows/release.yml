@@ -3,10 +3,6 @@ name: Release
 on:
   push:
     tags: ["v*"]
-  # Caches saved on a tag can only be used by that tag, so rebuild on main weekly (or by
-  # hand) to keep a cache every release can restore. Those runs don't publish anything.
-  schedule:
-    - cron: "0 4 * * 1"
   workflow_dispatch:
 
 permissions:
