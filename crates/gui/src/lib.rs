@@ -8,6 +8,7 @@ mod credentials;
 mod details_panel;
 mod format;
 mod hotkeys;
+mod prefs;
 mod runtime;
 mod session;
 mod speed_limits;
