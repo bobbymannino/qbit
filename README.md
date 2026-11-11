@@ -4,31 +4,23 @@
 [![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-blue)](#install)
 [![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange)](https://www.rust-lang.org/)
 
-A fast, native desktop app for [qBittorrent](https://www.qbittorrent.org/), written
-in Rust with [GPUI](https://www.gpui.rs/). It connects to qBittorrent's Web UI, so
-you can manage the torrents on your machine or a server from one small window.
+A fast, native desktop app for [qBittorrent](https://www.qbittorrent.org/),
+written in Rust with [GPUI](https://www.gpui.rs/). It connects to qBittorrent's
+Web UI, so you can manage the torrents on your machine or a server from one
+small window.
 
 ![qBit Screenshot](screenshot.png)
 
-[qBittorrent](https://www.qbittorrent.org/) client UI app written in Rust using
-GPUI.
-
 ## Install
 
-Download the build for your platform from the
-[latest release](https://github.com/bobbymannino/qbit/releases/latest):
+Download the build for your platform from the [latest
+release](https://github.com/bobbymannino/qbit/releases/latest):
 
-| Platform              | File                                 |
-| --------------------- | ------------------------------------ |
-| macOS (Apple Silicon) | `qBit-<version>-macos-arm64.dmg`     |
-| macOS (Intel)         | `qBit-<version>-macos-x86_64.dmg`    |
-| Windows (x64)         | `qBit-<version>-windows-x64.zip`     |
-| Windows (ARM)         | `qBit-<version>-windows-arm64.zip`   |
-| Linux (x86_64)        | `qBit-<version>-linux-x86_64.tar.gz` |
-| Linux (ARM)           | `qBit-<version>-linux-arm64.tar.gz`  |
+### Before you start
 
-qBit connects to qBittorrent's Web UI, so turn that on in qBittorrent first
+qBit talks to qBittorrent's Web UI, so turn that on in qBittorrent first
 (**Tools → Options → Web UI**) and note its address, username and password.
+You'll enter them the first time you open qBit.
 
 ### macOS
 
@@ -69,11 +61,32 @@ Make sure `~/.local/bin` is on your `PATH`. qBit stores your password in the
 system keyring via the Secret Service, so a keyring such as GNOME Keyring or
 KWallet needs to be running.
 
+## Updating
+
+Open **Settings** (the gear button, or the shortcut below) and click **Check for
+updates**. If there's a newer version, **Install and restart** downloads it,
+checks it against its published checksum, and swaps it in for you.
+
+## Keyboard shortcuts
+
+| Action        | macOS | Windows / Linux |
+| ------------- | ----- | --------------- |
+| Open settings | `⌘ ,` | `Ctrl ,`        |
+| Close window  | `⌘ W` | `Ctrl W`        |
+| Quit          | `⌘ Q` | `Ctrl Q`        |
+
 ## Building from source
 
-Needs Rust (see `rust-version` in `Cargo.toml`). Each script writes its output
-to `dist/` and builds for the machine it runs on; set `QBIT_TARGET` to a Rust
-target triple to build for another architecture.
+Needs Rust 1.95 or newer (see `rust-version` in `Cargo.toml`). To run it
+straight from the repo:
+
+```sh
+cargo run
+```
+
+To build a release package, run the script for your platform. Each writes its
+output to `dist/` and builds for the machine it runs on; set `QBIT_TARGET` to a
+Rust target triple to build for another architecture.
 
 ```sh
 scripts/bundle-macos.sh           # macOS .app and .dmg
@@ -84,3 +97,8 @@ pwsh scripts/bundle-windows.ps1   # Windows zip
 On Linux you'll need the Wayland, X11 and fontconfig development packages, and
 on Windows the MSVC build tools; see `.github/workflows/release.yml` for
 details.
+
+## Reporting a problem
+
+Found a bug or want a feature? [Open an
+issue](https://github.com/bobbymannino/qbit/issues/new/choose).
