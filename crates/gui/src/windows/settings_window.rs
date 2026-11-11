@@ -1,5 +1,6 @@
 use gpui_kit::{
-    AnyWindowHandle, App, Context, Global, Render, Size, TitlebarOptions, Window, WindowBounds, WindowOptions,
+    AnyWindowHandle, App, Context, Global, Render, Size, Subscription, TitlebarOptions, Window, WindowBounds,
+    WindowOptions,
     base::{StyledExt as _, v_flex},
     component::ActiveTheme as _,
     div,
@@ -13,7 +14,10 @@ use crate::{
 };
 
 /// The app's settings.
-pub struct SettingsWindow;
+pub struct SettingsWindow {
+    /// Forgets this window in [`OpenSettings`] once it's gone.
+    _on_release: Subscription,
+}
 
 /// The open settings window, if any, so there's only ever one.
 #[derive(Default)]
@@ -22,23 +26,42 @@ struct OpenSettings(Option<AnyWindowHandle>);
 impl Global for OpenSettings {}
 
 impl SettingsWindow {
-    /// Close the settings window if it's open, otherwise open it.
+    /// The settings window, if it's open.
+    pub fn handle(cx: &App) -> Option<AnyWindowHandle> {
+        cx.try_global::<OpenSettings>().and_then(|open| open.0)
+    }
+
+    /// Open the settings window; if it's already open, focus it, or close it if it's
+    /// already focused. There's only ever one.
     pub fn toggle(cx: &mut App) {
-        // A handle to a window the user already closed fails to update, so it counts as closed.
-        if let Some(handle) = cx.default_global::<OpenSettings>().0.take()
-            && handle.update(cx, |_, _, _| ()).is_ok()
-        {
-            cx.defer(move |cx| {
-                if let Err(err) = handle.update(cx, |_, window, _| window.remove_window()) {
-                    eprintln!("Failed to close the settings window: {err}");
+        let Some(handle) = Self::handle(cx) else {
+            match Self::open_window(cx, |_, cx| Self::new(cx)) {
+                Ok(handle) => cx.set_global(OpenSettings(Some(handle))),
+                Err(err) => eprintln!("Failed to open the settings window: {err}"),
+            }
+            return;
+        };
+
+        // Deferred, because a hotkey pressed in the settings window runs while that window
+        // is being updated, and it can't be updated again from inside that.
+        let close = cx.active_window() == Some(handle);
+        cx.defer(move |cx| {
+            let result = handle.update(cx, |_, window, _| {
+                if close {
+                    window.remove_window();
+                } else {
+                    window.activate_window();
                 }
             });
-            return;
-        }
+            if let Err(err) = result {
+                eprintln!("Failed to update the settings window: {err}");
+            }
+        });
+    }
 
-        match Self::open_window(cx, |_, _| Self) {
-            Ok(handle) => cx.set_global(OpenSettings(Some(handle))),
-            Err(err) => eprintln!("Failed to open the settings window: {err}"),
+    fn new(cx: &Context<Self>) -> Self {
+        Self {
+            _on_release: cx.on_release(|_, cx| cx.set_global(OpenSettings(None))),
         }
     }
 }
