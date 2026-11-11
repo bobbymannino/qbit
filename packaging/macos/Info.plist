@@ -7,7 +7,7 @@
     <key>CFBundleDisplayName</key>
     <string>qBit</string>
     <key>CFBundleIdentifier</key>
-    <string>com.bobbymannino.qbit</string>
+    <string>dev.bobman.qbit</string>
     <key>CFBundleIconFile</key>
     <string>qBit</string>
     <key>CFBundleExecutable</key>
