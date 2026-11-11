@@ -247,7 +247,10 @@ impl DeleteRequest {
                 alert
                     .confirm()
                     .title("Delete torrent?")
-                    .description(format!("\u{201c}{}\u{201d} will be removed from qBittorrent.", self.name))
+                    .description(format!(
+                        "\u{201c}{}\u{201d} will be removed from qBittorrent.",
+                        self.name
+                    ))
                     .child(
                         Checkbox::new("delete-files")
                             .label("Also remove content files")
@@ -346,6 +349,29 @@ impl TorrentTable {
             hash: torrent.hash.clone(),
             name: torrent.name.clone(),
         })
+    }
+
+    /// Limit `hash`'s download (or, if `download` is `false`, upload) speed to
+    /// `limit` bytes per second, `0` meaning unlimited, in the background.
+    ///
+    /// The new limit shows up on the next refresh.
+    pub fn send_limit(&self, hash: &str, download: bool, limit: u64) {
+        let Some(actions) = &self.actions else {
+            return;
+        };
+        let client = actions.client.clone();
+        let hash = hash.to_owned();
+        actions.runtime.spawn(async move {
+            let result = if download {
+                client.set_download_limit(&[&hash], limit).await
+            } else {
+                client.set_upload_limit(&[&hash], limit).await
+            };
+            if let Err(err) = result {
+                let which = if download { "download" } else { "upload" };
+                eprintln!("Failed to set the {which} limit of torrent {hash}: {err}");
+            }
+        });
     }
 
     /// Whether start/stop requests can be sent yet (i.e. logged in).

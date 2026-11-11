@@ -10,6 +10,7 @@ mod format;
 mod hotkeys;
 mod runtime;
 mod session;
+mod speed_limits;
 mod startup;
 mod theme;
 mod torrent_table;

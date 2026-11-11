@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use gpui_kit::{
-    AnyWindowHandle, App, AppContext as _, AsyncApp, Context, Entity, Render, Result, SharedString, Size, Subscription,
-    Task, TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions,
+    AnyElement, AnyWindowHandle, App, AppContext as _, AsyncApp, Context, Entity, Render, Result, SharedString, Size,
+    Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions,
     assets::IconName,
     base::{StyledExt, h_flex, v_flex},
     component::{
@@ -25,6 +25,7 @@ use crate::{
     format::format_rate,
     runtime::Tokio,
     session::login,
+    speed_limits::SpeedLimits,
     torrent_table::{Filter, TorrentTable},
     windows::{LoginWindow, OpenableWindow},
 };
@@ -50,6 +51,8 @@ pub struct MainWindow {
     table: Entity<TableState<TorrentTable>>,
     /// Filters the table by torrent name.
     search: Entity<InputState>,
+    /// The details panel's speed limit inputs for the selected torrent.
+    limits: SpeedLimits,
     _subscriptions: Vec<Subscription>,
     /// Logs in and refreshes the torrents; dropped (and so stopped) with the window.
     _refresh: Task<()>,
@@ -75,7 +78,8 @@ impl MainWindow {
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search torrents"));
         // Redraw when the selection changes, so the details panel follows it.
         let observe_table = cx.observe(&table, |_, _, cx| cx.notify());
-        let subscriptions = vec![
+        let limits = SpeedLimits::new(window, cx);
+        let mut subscriptions = vec![
             observe_table,
             cx.subscribe_in(&search, window, |this, search, event: &InputEvent, _, cx| {
                 if matches!(event, InputEvent::Change) {
@@ -87,6 +91,15 @@ impl MainWindow {
                 }
             }),
         ];
+        subscriptions.extend(limits.subscribe(window, cx, |this: &mut Self, direction, cx| {
+            let table = this.table.read(cx);
+            if let Some(torrent) = table
+                .selected_row()
+                .and_then(|row_ix| table.delegate().torrent_at(row_ix))
+            {
+                this.limits.commit(direction, torrent, table.delegate(), cx);
+            }
+        }));
 
         Self {
             _refresh: Self::start_refreshing(cx, credentials.clone(), client),
@@ -95,6 +108,7 @@ impl MainWindow {
             transfer: None,
             table,
             search,
+            limits,
             _subscriptions: subscriptions,
         }
     }
@@ -294,10 +308,11 @@ impl MainWindow {
     }
 
     /// The details panel for the selected torrent, if any.
-    fn render_details(&self, cx: &App) -> Option<impl IntoElement> {
+    fn render_details(&mut self, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
         let table = self.table.read(cx);
-        let torrent = table.delegate().torrent_at(table.selected_row()?)?;
-        Some(details_panel(torrent, &self.table, cx))
+        let torrent = table.delegate().torrent_at(table.selected_row()?)?.clone();
+        self.limits.sync(&torrent, window, cx);
+        Some(details_panel(&torrent, &self.table, &self.limits, cx).into_any_element())
     }
 
     /// Torrent count on the left; total download and upload speed on the right.
@@ -408,7 +423,8 @@ impl OpenableWindow for MainWindow {
 }
 
 impl Render for MainWindow {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let details = self.render_details(window, cx);
         let theme = cx.theme();
 
         let status: Option<SharedString> = match &self.status {
@@ -457,7 +473,7 @@ impl Render for MainWindow {
                             .h_full()
                             .child(DataTable::new(&self.table).stripe(true).bordered(true)),
                     )
-                    .children(self.render_details(cx)),
+                    .children(details),
             )
             .child(self.render_status_bar(cx))
     }

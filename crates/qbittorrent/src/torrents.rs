@@ -56,6 +56,12 @@ pub struct Torrent {
     /// The tracker currently in use, or empty if none is working.
     #[serde(default)]
     pub tracker: String,
+    /// Download speed limit in bytes per second; `0` or negative means unlimited.
+    #[serde(default)]
+    pub dl_limit: i64,
+    /// Upload speed limit in bytes per second; `0` or negative means unlimited.
+    #[serde(default)]
+    pub up_limit: i64,
 }
 
 /// A torrent's state, as reported by qBittorrent.
@@ -252,6 +258,47 @@ impl Client {
             .post(url)
             .header(header::REFERER, self.base.as_str())
             .form(&[("hashes", hashes.as_str()), ("deleteFiles", delete_files)])
+            .send()
+            .await?;
+
+        match res.status() {
+            StatusCode::FORBIDDEN => Err(Error::NotLoggedIn),
+            status if !status.is_success() => Err(Error::UnexpectedStatus(status)),
+            _ => Ok(()),
+        }
+    }
+
+    /// Limit the download speed of the torrents with the given hashes to `limit`
+    /// bytes per second; `0` removes the limit.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Client::delete`].
+    pub async fn set_download_limit(&self, hashes: &[&str], limit: u64) -> Result<(), Error> {
+        self.post_limit("setDownloadLimit", hashes, limit).await
+    }
+
+    /// Limit the upload speed of the torrents with the given hashes to `limit`
+    /// bytes per second; `0` removes the limit.
+    ///
+    /// # Errors
+    ///
+    /// Same as [`Client::delete`].
+    pub async fn set_upload_limit(&self, hashes: &[&str], limit: u64) -> Result<(), Error> {
+        self.post_limit("setUploadLimit", hashes, limit).await
+    }
+
+    /// POST `hashes` and `limit` to `api/v2/torrents/{action}`.
+    async fn post_limit(&self, action: &str, hashes: &[&str], limit: u64) -> Result<(), Error> {
+        let url = self.endpoint(&format!("api/v2/torrents/{action}"))?;
+        let hashes = hashes.join("|");
+        let limit = limit.to_string();
+
+        let res = self
+            .http
+            .post(url)
+            .header(header::REFERER, self.base.as_str())
+            .form(&[("hashes", hashes.as_str()), ("limit", limit.as_str())])
             .send()
             .await?;
 

@@ -5,6 +5,7 @@ use gpui_kit::{
     component::{
         ActiveTheme as _, Disableable as _, Sizable as _,
         button::{Button, ButtonVariants as _},
+        input::{InputState, NumberInput},
         progress::Progress,
         scroll::ScrollableElement as _,
         table::TableState,
@@ -17,6 +18,7 @@ use qbittorrent::Torrent;
 
 use crate::{
     format::{format_ago, format_bytes, format_eta, format_rate},
+    speed_limits::SpeedLimits,
     torrent_table::TorrentTable,
 };
 
@@ -25,10 +27,16 @@ const PANEL_WIDTH: f32 = 320.0;
 
 /// A side panel with everything about `torrent`. The close button clears the table's
 /// selection, which hides the panel.
-pub fn details_panel(torrent: &Torrent, table: &Entity<TableState<TorrentTable>>, cx: &App) -> impl IntoElement {
+pub fn details_panel(
+    torrent: &Torrent,
+    table: &Entity<TableState<TorrentTable>>,
+    limits: &SpeedLimits,
+    cx: &App,
+) -> impl IntoElement {
     let theme = cx.theme();
     let percent = torrent.progress * 100.0;
     let delete = table.read(cx).delegate().delete_request(torrent);
+    let can_send = table.read(cx).delegate().can_send();
     let table = table.clone();
 
     let completed = if torrent.completion_on > 0 {
@@ -104,6 +112,7 @@ pub fn details_panel(torrent: &Torrent, table: &Entity<TableState<TorrentTable>>
             ],
             cx,
         ))
+        .child(limits_section(limits, can_send, cx))
         .child(section(
             "Info",
             [
@@ -139,6 +148,37 @@ fn section<const N: usize>(title: &'static str, fields: [(&'static str, String);
                 .child(div().text_xs().text_color(theme.muted_foreground).child(label))
                 .child(div().text_sm().child(SharedString::from(value)))
         }))
+}
+
+/// Inputs for the torrent's download and upload speed limits, applied on Enter or
+/// when focus leaves them. Empty means unlimited.
+fn limits_section(limits: &SpeedLimits, enabled: bool, cx: &App) -> impl IntoElement {
+    let theme = cx.theme();
+
+    let field = |label: &'static str, input: &Entity<InputState>| {
+        v_flex()
+            .gap_0p5()
+            .child(div().text_xs().text_color(theme.muted_foreground).child(label))
+            .child(
+                NumberInput::new(input)
+                    .placeholder("Unlimited")
+                    .suffix(div().text_xs().text_color(theme.muted_foreground).child("KiB/s"))
+                    .small()
+                    .disabled(!enabled),
+            )
+    };
+
+    v_flex()
+        .gap_2()
+        .child(
+            div()
+                .text_xs()
+                .font_semibold()
+                .text_color(theme.muted_foreground)
+                .child("SPEED LIMITS"),
+        )
+        .child(field("Max download speed", &limits.download))
+        .child(field("Max upload speed", &limits.upload))
 }
 
 /// `value`, or `—` when it's empty.
