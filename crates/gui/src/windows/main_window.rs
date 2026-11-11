@@ -117,7 +117,9 @@ impl MainWindow {
 
     fn new(window: &mut Window, cx: &mut Context<Self>, credentials: Credentials, client: Client) -> Self {
         let mut rows = TorrentTable::new();
-        rows.set_column_order(Prefs::load().column_order.iter().map(String::as_str));
+        let prefs = Prefs::load();
+        rows.set_column_order(prefs.column_order.iter().map(String::as_str));
+        rows.set_column_widths(prefs.column_widths.iter().map(|(key, width)| (key.as_str(), *width)));
         if let Some(runtime) = Tokio::handle(cx) {
             rows.set_client(client.clone(), runtime);
         }
@@ -129,15 +131,19 @@ impl MainWindow {
         let limits = SpeedLimits::new(window, cx);
         let mut subscriptions = vec![
             observe_table,
-            // Clicking the selected torrent again closes its details panel.
-            cx.subscribe(&table, |_, table, event: &TableEvent, cx| {
-                if let TableEvent::SelectRow(row_ix) = *event {
-                    table.update(cx, |table, cx| {
-                        if table.delegate_mut().take_reselected(row_ix) {
-                            table.clear_selection(cx);
-                        }
-                    });
+            cx.subscribe(&table, |_, table, event: &TableEvent, cx| match event {
+                // Clicking the selected torrent again closes its details panel.
+                TableEvent::SelectRow(row_ix) => table.update(cx, |table, cx| {
+                    if table.delegate_mut().take_reselected(*row_ix) {
+                        table.clear_selection(cx);
+                    }
+                }),
+                // Sent once a resize finishes, so this doesn't write on every mouse move.
+                TableEvent::ColumnWidthsChanged(widths) => {
+                    let widths = table.update(cx, |table, _| table.delegate_mut().record_column_widths(widths));
+                    Prefs::update(|prefs| prefs.column_widths = widths);
                 }
+                _ => {}
             }),
             cx.subscribe_in(&search, window, |this, search, event: &InputEvent, _, cx| {
                 if matches!(event, InputEvent::Change) {
