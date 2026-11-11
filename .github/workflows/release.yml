@@ -3,6 +3,9 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # Caches saved on a tag can only be used by that tag, so run this by hand on main to
+  # save a cache every release can restore. Those runs don't publish anything.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -29,6 +32,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build app and disk image
         run: scripts/bundle-macos.sh "${GITHUB_REF_NAME}"
@@ -36,6 +40,7 @@ jobs:
           QBIT_TARGET: ${{ matrix.target }}
 
       - uses: actions/upload-artifact@v7
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           name: qBit-macos-${{ matrix.arch }}
           # The disk image, plus the app as a tarball for in-app updates; not the bare
@@ -75,6 +80,9 @@ jobs:
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build tarball
         run: scripts/bundle-linux.sh "${GITHUB_REF_NAME}"
@@ -82,6 +90,7 @@ jobs:
           QBIT_TARGET: ${{ matrix.target }}
 
       - uses: actions/upload-artifact@v7
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           name: qBit-linux-${{ matrix.arch }}
           # A tarball keeps the binary executable, which artifacts alone wouldn't.
@@ -109,6 +118,9 @@ jobs:
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build zip
         shell: pwsh
@@ -119,6 +131,7 @@ jobs:
           AWS_LC_SYS_PREBUILT_NASM: "1"
 
       - uses: actions/upload-artifact@v7
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           name: qBit-windows-${{ matrix.arch }}
           path: dist/*.zip
@@ -126,6 +139,7 @@ jobs:
 
   release:
     needs: [build-macos, build-linux, build-windows]
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
