@@ -53,6 +53,8 @@ pub fn details_panel(
         .gap_4()
         .p_3()
         .overflow_y_scrollbar()
+        // Keyed by torrent, so selecting another one starts it scrolled to the top.
+        .id(SharedString::from(format!("details-scroll-{}", torrent.hash)))
         .child(
             h_flex()
                 .items_start()
