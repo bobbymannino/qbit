@@ -1,7 +1,7 @@
-use std::{cell::Cell, cmp::Ordering, rc::Rc, sync::LazyLock};
+use std::{cell::Cell, cmp::Ordering, collections::BTreeMap, rc::Rc, sync::LazyLock};
 
 use gpui_kit::{
-    AnyElement, App, ClipboardItem, Context, Div, IntoElement, MouseButton, SharedString, Stateful, Window,
+    AnyElement, App, ClipboardItem, Context, Div, IntoElement, MouseButton, Pixels, SharedString, Stateful, Window,
     assets::IconName,
     base::h_flex,
     component::{
@@ -62,7 +62,7 @@ impl Filter {
 const PERCENT_WIDTH: f32 = 44.0;
 
 /// The columns shown in the torrent table, in display order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum TorrentColumn {
     /// Play/pause button.
     Toggle,
@@ -203,6 +203,8 @@ pub struct TorrentTable {
     /// Columns in display order. The table passes display indices to the delegate, so
     /// this follows the user dragging columns around.
     columns: Vec<TorrentColumn>,
+    /// Widths the user resized columns to, in pixels, replacing their defaults.
+    widths: BTreeMap<TorrentColumn, f32>,
     /// The row last pressed while it was already selected. Clicking the selected
     /// torrent again deselects it, which closes the details panel.
     pressed_selected_row: Option<usize>,
@@ -320,6 +322,7 @@ impl TorrentTable {
             loading: true,
             actions: None,
             columns: Vec::new(),
+            widths: BTreeMap::new(),
             pressed_selected_row: None,
         }
     }
@@ -339,6 +342,34 @@ impl TorrentTable {
             self.columns.as_slice()
         };
         columns.iter().map(|column| column.key().to_owned()).collect()
+    }
+
+    /// Size the columns as saved by [`Self::record_column_widths`].
+    ///
+    /// Unknown columns and widths that aren't a positive number are skipped. Call before
+    /// the table is built from this delegate, which reads the columns once.
+    pub fn set_column_widths<'a>(&mut self, saved: impl IntoIterator<Item = (&'a str, f32)>) {
+        self.widths = saved
+            .into_iter()
+            .filter(|(_, width)| width.is_finite() && *width > 0.0)
+            .filter_map(|(key, width)| TorrentColumn::from_key(key).map(|column| (column, width)))
+            .collect();
+    }
+
+    /// Note the column widths the table reports after a resize, in display order.
+    ///
+    /// # Returns
+    ///
+    /// Every column's width by key, for [`Self::set_column_widths`].
+    pub fn record_column_widths(&mut self, widths: &[Pixels]) -> BTreeMap<String, f32> {
+        let columns: Vec<_> = (0..widths.len()).filter_map(|col_ix| self.column_at(col_ix)).collect();
+        for (column, width) in columns.into_iter().zip(widths) {
+            self.widths.insert(column, width.as_f32());
+        }
+        self.widths
+            .iter()
+            .map(|(column, width)| (column.key().to_owned(), *width))
+            .collect()
     }
 
     /// The column shown at display index `col_ix`.
@@ -526,8 +557,12 @@ impl TableDelegate for TorrentTable {
     }
 
     fn column(&self, col_ix: usize, _cx: &App) -> Column {
-        self.column_at(col_ix)
-            .map_or_else(Column::default, TorrentColumn::column)
+        let Some(column) = self.column_at(col_ix) else {
+            return Column::default();
+        };
+        self.widths
+            .get(&column)
+            .map_or_else(|| column.column(), |width| column.column().width(px(*width)))
     }
 
     fn move_column(&mut self, col_ix: usize, to_ix: usize, _window: &mut Window, _cx: &mut Context<TableState<Self>>) {
@@ -703,6 +738,8 @@ const fn percent_f32(percent: f64) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use gpui_kit::px;
+
     use super::{TorrentColumn, TorrentTable};
 
     #[test]
@@ -740,5 +777,27 @@ mod tests {
                 TorrentColumn::Upload,
             ]
         );
+    }
+
+    #[test]
+    fn records_widths_against_the_columns_shown() {
+        let mut table = TorrentTable::new();
+        table.set_column_order(["toggle", "ratio", "name"]);
+        let widths = [px(40.0), px(90.0), px(300.0)];
+        let saved = table.record_column_widths(&widths);
+
+        assert_eq!(saved.get("ratio"), Some(&90.0));
+        assert_eq!(saved.get("name"), Some(&300.0));
+        assert_eq!(saved.get("size"), None);
+    }
+
+    #[test]
+    fn skips_bad_saved_widths() {
+        let mut table = TorrentTable::new();
+        table.set_column_widths([("name", 300.0), ("gone", 50.0), ("size", -1.0), ("eta", f32::NAN)]);
+        let saved = table.record_column_widths(&[]);
+
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved.get("name"), Some(&300.0));
     }
 }

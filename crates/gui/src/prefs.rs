@@ -3,7 +3,7 @@
 //! That's `~/Library/Application Support/qbit` on macOS, `%APPDATA%\qbit` on Windows,
 //! and `$XDG_CONFIG_HOME/qbit` (usually `~/.config/qbit`) on Linux.
 
-use std::{fs, path::PathBuf};
+use std::{collections::BTreeMap, fs, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +20,8 @@ const FILE_NAME: &str = "prefs.json";
 pub struct Prefs {
     /// The torrent table's columns in the order the user arranged them, by key.
     pub column_order: Vec<String>,
+    /// The torrent table's column widths in pixels, by key, for columns the user resized.
+    pub column_widths: BTreeMap<String, f32>,
 }
 
 impl Prefs {
