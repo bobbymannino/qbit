@@ -59,7 +59,7 @@ impl Filter {
 const PERCENT_WIDTH: f32 = 44.0;
 
 /// The columns shown in the torrent table, in display order.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TorrentColumn {
     /// Play/pause button.
     Toggle,
@@ -118,6 +118,25 @@ impl TorrentColumn {
             Self::Upload => "upspeed",
             Self::Ratio => "ratio",
         }
+    }
+
+    /// The column with this [`key`](Self::key), if there is one.
+    fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|column| column.key() == key)
+    }
+
+    /// Put the columns in the order of `keys`, as saved by [`TorrentTable::column_order`].
+    ///
+    /// Unknown and repeated keys are skipped, and columns missing from `keys` (such as
+    /// ones added since it was saved) go at the end in their default order.
+    fn ordered<'a>(keys: impl IntoIterator<Item = &'a str>) -> Vec<Self> {
+        let mut columns = Vec::with_capacity(Self::ALL.len());
+        for column in keys.into_iter().filter_map(Self::from_key).chain(Self::ALL) {
+            if !columns.contains(&column) {
+                columns.push(column);
+            }
+        }
+        columns
     }
 
     /// Whether the column's values line up on the right (numbers).
@@ -300,6 +319,23 @@ impl TorrentTable {
             columns: Vec::new(),
             pressed_selected_row: None,
         }
+    }
+
+    /// Show the columns in the order of `keys`, as saved by [`Self::column_order`].
+    ///
+    /// Call before the table is built from this delegate, which reads the columns once.
+    pub fn set_column_order<'a>(&mut self, keys: impl IntoIterator<Item = &'a str>) {
+        self.columns = TorrentColumn::ordered(keys);
+    }
+
+    /// The keys of the columns in display order, for [`Self::set_column_order`].
+    pub fn column_order(&self) -> Vec<String> {
+        let columns = if self.columns.is_empty() {
+            TorrentColumn::ALL.as_slice()
+        } else {
+            self.columns.as_slice()
+        };
+        columns.iter().map(|column| column.key().to_owned()).collect()
     }
 
     /// The column shown at display index `col_ix`.
@@ -658,4 +694,46 @@ const fn eta_sort_key(torrent: &Torrent) -> (bool, i64) {
 )]
 const fn percent_f32(percent: f64) -> f32 {
     percent as f32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TorrentColumn, TorrentTable};
+
+    #[test]
+    fn keeps_a_saved_column_order() {
+        let mut table = TorrentTable::new();
+        let saved = [
+            "toggle", "name", "ratio", "size", "progress", "status", "dlspeed", "eta", "upspeed",
+        ];
+        table.set_column_order(saved);
+        assert_eq!(table.column_order(), saved);
+    }
+
+    #[test]
+    fn defaults_to_every_column_in_order() {
+        assert_eq!(TorrentColumn::ordered([]), TorrentColumn::ALL);
+        let keys = TorrentTable::new().column_order();
+        let expected: Vec<_> = TorrentColumn::ALL.iter().map(|column| column.key()).collect();
+        assert_eq!(keys, expected);
+    }
+
+    #[test]
+    fn skips_unknown_and_repeated_columns_and_adds_missing_ones() {
+        let columns = TorrentColumn::ordered(["ratio", "gone", "ratio", "name"]);
+        assert_eq!(
+            columns,
+            [
+                TorrentColumn::Ratio,
+                TorrentColumn::Name,
+                TorrentColumn::Toggle,
+                TorrentColumn::Size,
+                TorrentColumn::Progress,
+                TorrentColumn::Status,
+                TorrentColumn::Download,
+                TorrentColumn::Eta,
+                TorrentColumn::Upload,
+            ]
+        );
+    }
 }
