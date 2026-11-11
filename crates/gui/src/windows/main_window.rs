@@ -442,7 +442,7 @@ impl OpenableWindow for MainWindow {
                 ..Default::default()
             }),
             window_min_size: Some(Size::new(px(400.0), px(400.0))),
-            window_bounds: Some(WindowBounds::centered(Size::new(px(900.0), px(600.0)), cx)),
+            window_bounds: Some(WindowBounds::centered(Size::new(px(1024.0), px(640.0)), cx)),
             ..Default::default()
         }
     }
