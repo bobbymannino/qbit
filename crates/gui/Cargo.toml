@@ -24,5 +24,9 @@ self-replace.workspace = true
 [target.'cfg(windows)'.dependencies]
 zip.workspace = true
 
+[dev-dependencies]
+# Headless windows for UI tests.
+gpui-kit = { workspace = true, features = ["test-support"] }
+
 [lints]
 workspace = true
