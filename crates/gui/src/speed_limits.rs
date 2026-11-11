@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 const BYTES_PER_KIB: u64 = 1024;
 
 /// Which speed a limit applies to.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
     Download,
     Upload,
@@ -269,5 +269,292 @@ mod tests {
             let bytes = parse_limit(typed).map(i64::try_from);
             assert_eq!(bytes.map(|bytes| format_limit(bytes.unwrap())), Some(typed.to_owned()));
         }
+    }
+}
+
+#[cfg(test)]
+mod ui_tests {
+    use std::cell::Cell;
+
+    use gpui_kit::{
+        AnyWindowHandle, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render, Subscription,
+        TestAppContext, Window, component::input::Input, div, test::TestWindowExt as _,
+    };
+
+    use super::{Direction, Limits, SpeedLimits};
+    use crate::test_support::{open_window, runtime};
+
+    /// Shows the two inputs, and records every commit they ask for.
+    struct Host {
+        limits: SpeedLimits,
+        committed: Vec<Direction>,
+        _subscriptions: [Subscription; 2],
+    }
+
+    impl Render for Host {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div()
+                .child(Input::new(&self.limits.download).id("download"))
+                .child(Input::new(&self.limits.upload).id("upload"))
+        }
+    }
+
+    fn open(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Host>) {
+        open_window(cx, |window, cx| {
+            cx.new(|cx| {
+                let limits = SpeedLimits::new(window, cx);
+                let subscriptions = limits.subscribe(window, cx, |host: &mut Host, direction, _| {
+                    host.committed.push(direction);
+                });
+                Host {
+                    limits,
+                    committed: Vec::new(),
+                    _subscriptions: subscriptions,
+                }
+            })
+        })
+    }
+
+    /// Run `f` on the host inside its window, then render a frame.
+    fn with_host<R>(
+        cx: &mut TestAppContext,
+        (handle, host): &(AnyWindowHandle, Entity<Host>),
+        f: impl FnOnce(&mut Host, &mut Window, &mut Context<Host>) -> R,
+    ) -> R {
+        cx.update_window(*handle, |_, window, cx| {
+            let result = host.update(cx, |host, cx| f(host, window, cx));
+            window.render_frame(cx);
+            result
+        })
+        .unwrap()
+    }
+
+    /// Drive the window directly: click, type and read what's shown.
+    fn with_window<R>(
+        cx: &mut TestAppContext,
+        (handle, _): &(AnyWindowHandle, Entity<Host>),
+        f: impl FnOnce(&mut Window, &mut gpui_kit::App) -> R,
+    ) -> R {
+        cx.update_window(*handle, |_, window, cx| {
+            window.render_frame(cx);
+            f(window, cx)
+        })
+        .unwrap()
+    }
+
+    /// What the `id` input shows.
+    fn shown(cx: &mut TestAppContext, view: &(AnyWindowHandle, Entity<Host>), id: &'static str) -> String {
+        with_window(cx, view, |window, _| {
+            window.find(id).value().unwrap_or_default().to_owned()
+        })
+    }
+
+    fn sync(cx: &mut TestAppContext, view: &(AnyWindowHandle, Entity<Host>), key: &str, download: i64, upload: i64) {
+        with_host(cx, view, |host, window, cx| {
+            host.limits.sync(key, Limits { download, upload }, window, cx);
+        });
+    }
+
+    /// Click the `id` input and type `text` into it.
+    fn type_into(cx: &mut TestAppContext, view: &(AnyWindowHandle, Entity<Host>), id: &'static str, text: &str) {
+        with_window(cx, view, |window, cx| {
+            window.click(id, cx);
+            window.input(text, cx);
+        });
+    }
+
+    /// Commit the download limit against `current`, answering with `succeeded`.
+    /// Returns the bytes sent, if any, and the request's id.
+    fn commit_download(
+        cx: &mut TestAppContext,
+        view: &(AnyWindowHandle, Entity<Host>),
+        current: i64,
+        runtime: &tokio::runtime::Runtime,
+    ) -> Option<(u64, u64)> {
+        let sent_bytes = Cell::new(None);
+        let sent = with_host(cx, view, |host, _, cx| {
+            let current = Limits {
+                download: current,
+                upload: 0,
+            };
+            let send = |bytes| {
+                sent_bytes.set(Some(bytes));
+                Some(runtime.spawn(async { true }))
+            };
+            host.limits
+                .commit(Direction::Download, current, send, cx)
+                .map(|sent| sent.id)
+        });
+        match (sent, sent_bytes.get()) {
+            (Some(id), Some(bytes)) => Some((bytes, id)),
+            (None, None) => None,
+            mismatch => panic!("commit and send disagree: {mismatch:?}"),
+        }
+    }
+
+    fn is_sending(cx: &mut TestAppContext, view: &(AnyWindowHandle, Entity<Host>), direction: Direction) -> bool {
+        with_host(cx, view, |host, _, _| host.limits.is_sending(direction))
+    }
+
+    #[gpui_kit::test]
+    fn shows_a_keys_limits_in_kib(cx: &mut TestAppContext) {
+        let view = open(cx);
+        sync(cx, &view, "a", 512_000, 0);
+
+        assert_eq!(shown(cx, &view, "download"), "500");
+        assert_eq!(shown(cx, &view, "upload"), "");
+    }
+
+    #[gpui_kit::test]
+    fn follows_limits_changed_elsewhere(cx: &mut TestAppContext) {
+        let view = open(cx);
+        sync(cx, &view, "a", 0, 0);
+        sync(cx, &view, "a", 1024, 2048);
+
+        assert_eq!(shown(cx, &view, "download"), "1");
+        assert_eq!(shown(cx, &view, "upload"), "2");
+    }
+
+    #[gpui_kit::test]
+    fn keeps_what_is_being_typed_until_the_key_changes(cx: &mut TestAppContext) {
+        let view = open(cx);
+        sync(cx, &view, "a", 0, 0);
+        type_into(cx, &view, "download", "123");
+
+        sync(cx, &view, "a", 512_000, 0);
+        assert_eq!(shown(cx, &view, "download"), "123");
+
+        sync(cx, &view, "b", 512_000, 0);
+        assert_eq!(shown(cx, &view, "download"), "500");
+    }
+
+    #[gpui_kit::test]
+    fn only_accepts_digits(cx: &mut TestAppContext) {
+        let view = open(cx);
+        sync(cx, &view, "a", 0, 0);
+        type_into(cx, &view, "download", "1a2.3");
+
+        assert_eq!(shown(cx, &view, "download"), "123");
+    }
+
+    #[gpui_kit::test]
+    fn asks_to_commit_on_enter_and_on_leaving(cx: &mut TestAppContext) {
+        let view = open(cx);
+        sync(cx, &view, "a", 0, 0);
+
+        type_into(cx, &view, "download", "1");
+        with_window(cx, &view, |window, cx| window.press("enter", cx));
+        assert_eq!(
+            with_host(cx, &view, |host, _, _| host.committed.clone()),
+            [Direction::Download]
+        );
+
+        // Moving to the upload input leaves the download one.
+        with_window(cx, &view, |window, cx| window.click("upload", cx));
+        let committed = with_host(cx, &view, |host, _, _| host.committed.clone());
+        assert_eq!(committed, [Direction::Download, Direction::Download]);
+    }
+
+    #[gpui_kit::test]
+    fn sends_the_typed_limit_in_bytes_once(cx: &mut TestAppContext) {
+        let runtime = runtime();
+        let view = open(cx);
+        sync(cx, &view, "a", 0, 0);
+        type_into(cx, &view, "download", "100");
+
+        let (bytes, _) = commit_download(cx, &view, 0, &runtime).unwrap();
+        assert_eq!(bytes, 102_400);
+        assert!(is_sending(cx, &view, Direction::Download));
+        assert!(!is_sending(cx, &view, Direction::Upload));
+
+        // Nothing more is sent while the first request is in flight.
+        assert_eq!(commit_download(cx, &view, 0, &runtime), None);
+    }
+
+    #[gpui_kit::test]
+    fn sends_nothing_when_the_limit_is_unchanged(cx: &mut TestAppContext) {
+        let runtime = runtime();
+        let view = open(cx);
+        sync(cx, &view, "a", 102_400, 0);
+
+        assert_eq!(commit_download(cx, &view, 102_400, &runtime), None);
+    }
+
+    #[gpui_kit::test]
+    fn sends_nothing_before_the_first_sync(cx: &mut TestAppContext) {
+        let runtime = runtime();
+        let view = open(cx);
+        type_into(cx, &view, "download", "100");
+
+        assert_eq!(commit_download(cx, &view, 0, &runtime), None);
+    }
+
+    #[gpui_kit::test]
+    fn keeps_a_sent_limit_until_qbittorrent_reports_it(cx: &mut TestAppContext) {
+        let runtime = runtime();
+        let view = open(cx);
+        sync(cx, &view, "a", 0, 0);
+        type_into(cx, &view, "download", "100");
+        let (_, id) = commit_download(cx, &view, 0, &runtime).unwrap();
+        with_host(cx, &view, |host, _, _| {
+            host.limits.finish(Direction::Download, id, true);
+        });
+        assert!(!is_sending(cx, &view, Direction::Download));
+
+        // Stop editing, so refreshes may change the input again.
+        with_window(cx, &view, |window, cx| window.click("upload", cx));
+
+        // A refresh from before qBittorrent applied it doesn't flash the old limit.
+        sync(cx, &view, "a", 0, 0);
+        assert_eq!(shown(cx, &view, "download"), "100");
+
+        // Once reported, later changes from elsewhere show again.
+        sync(cx, &view, "a", 102_400, 0);
+        sync(cx, &view, "a", 1024, 0);
+        assert_eq!(shown(cx, &view, "download"), "1");
+    }
+
+    #[gpui_kit::test]
+    fn puts_the_actual_limit_back_when_sending_fails(cx: &mut TestAppContext) {
+        let runtime = runtime();
+        let view = open(cx);
+        sync(cx, &view, "a", 0, 0);
+        type_into(cx, &view, "download", "100");
+        let (_, id) = commit_download(cx, &view, 0, &runtime).unwrap();
+        with_host(cx, &view, |host, _, _| {
+            host.limits.finish(Direction::Download, id, false);
+        });
+        with_window(cx, &view, |window, cx| window.click("upload", cx));
+
+        sync(cx, &view, "a", 0, 0);
+        assert_eq!(shown(cx, &view, "download"), "");
+    }
+
+    #[gpui_kit::test]
+    fn ignores_an_old_request_finishing(cx: &mut TestAppContext) {
+        let runtime = runtime();
+        let view = open(cx);
+        sync(cx, &view, "a", 0, 0);
+        type_into(cx, &view, "download", "100");
+        let (_, id) = commit_download(cx, &view, 0, &runtime).unwrap();
+
+        with_host(cx, &view, |host, _, _| {
+            host.limits.finish(Direction::Download, id.wrapping_add(1), true);
+        });
+        assert!(is_sending(cx, &view, Direction::Download));
+    }
+
+    #[gpui_kit::test]
+    fn only_disables_the_key_being_sent(cx: &mut TestAppContext) {
+        let runtime = runtime();
+        let view = open(cx);
+        sync(cx, &view, "a", 0, 0);
+        type_into(cx, &view, "download", "100");
+        commit_download(cx, &view, 0, &runtime).unwrap();
+
+        sync(cx, &view, "b", 0, 0);
+        assert!(!is_sending(cx, &view, Direction::Download));
+        sync(cx, &view, "a", 0, 0);
+        assert!(is_sending(cx, &view, Direction::Download));
     }
 }
