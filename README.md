@@ -1,5 +1,13 @@
 # qBit
 
+[![Latest release](https://img.shields.io/github/v/release/bobbymannino/qbit?label=latest)](https://github.com/bobbymannino/qbit/releases/latest)
+[![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-blue)](#install)
+[![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange)](https://www.rust-lang.org/)
+
+A fast, native desktop app for [qBittorrent](https://www.qbittorrent.org/), written
+in Rust with [GPUI](https://www.gpui.rs/). It connects to qBittorrent's Web UI, so
+you can manage the torrents on your machine or a server from one small window.
+
 ![qBit Screenshot](screenshot.png)
 
 [qBittorrent](https://www.qbittorrent.org/) client UI app written in Rust using
