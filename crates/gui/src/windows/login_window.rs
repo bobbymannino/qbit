@@ -1,7 +1,8 @@
 use gpui_kit::{
-    AnyWindowHandle, App, AppContext as _, Context, Entity, Render, Result, SharedString, Size, Subscription, Task,
-    TitlebarOptions, Window, WindowBounds, WindowOptions,
+    AnyWindowHandle, App, AppContext as _, Bounds, Context, Entity, Pixels, Render, Result, SharedString, Size,
+    Subscription, Task, TitlebarOptions, Window, WindowBounds, WindowOptions,
     base::{StyledExt, v_flex},
+    canvas,
     component::{
         ActiveTheme as _, Disableable as _,
         button::{Button, ButtonVariants as _},
@@ -196,6 +197,26 @@ impl LoginWindow {
     }
 }
 
+/// Grows or shrinks the window so the form, padding included, fits exactly.
+///
+/// `children` are the bounds of the form's frame (the space the window gives it) and the
+/// form itself (its natural size). Fitting runs after every layout, so it follows the error
+/// message appearing, changing or going away, and stops once the two heights match.
+fn fit_window_to_form(children: &[Bounds<Pixels>], window: &Window, cx: &mut App) {
+    let (Some(frame), Some(form)) = (children.first(), children.get(1)) else {
+        return;
+    };
+    let shortfall = f32::from(form.size.height) - f32::from(frame.size.height);
+    if shortfall.abs() < 1.0 {
+        return;
+    }
+
+    let viewport = window.viewport_size();
+    let size = Size::new(viewport.width, px(f32::from(viewport.height) + shortfall));
+    // Resizing mid-frame would invalidate the layout being painted, so wait for it to finish.
+    window.defer(cx, move |window, _| window.resize(size));
+}
+
 impl OpenableWindow for LoginWindow {
     fn window_options(cx: &App) -> WindowOptions {
         WindowOptions {
@@ -223,12 +244,10 @@ impl Render for LoginWindow {
                 .child(input)
         };
 
-        let content = v_flex()
-            .flex_1()
-            .min_h_0()
+        let form = v_flex()
+            .flex_shrink_0()
             .p_8()
             .gap_4()
-            .justify_center()
             .child(
                 v_flex()
                     .gap_1()
@@ -264,6 +283,15 @@ impl Render for LoginWindow {
             .bg(theme.background)
             .text_color(theme.foreground)
             .children(client_title_bar(window, format!("{APP_TITLE} — Log in")))
-            .child(content)
+            .child(
+                // The canvas fills the frame to measure it; the form keeps its natural height.
+                v_flex()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .child(canvas(|_, _, _| {}, |_, (), _, _| {}).absolute().size_full())
+                    .child(form)
+                    .on_children_prepainted(|children, window, cx| fit_window_to_form(&children, window, cx)),
+            )
     }
 }
