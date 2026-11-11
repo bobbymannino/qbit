@@ -342,3 +342,108 @@ impl Client {
         Ok(res.status())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::{Torrent, TorrentState};
+
+    fn state(name: &str) -> TorrentState {
+        serde_json::from_value(json!(name)).unwrap()
+    }
+
+    #[test]
+    fn parses_qbittorrent_4_and_5_state_names() {
+        assert_eq!(state("downloading"), TorrentState::Downloading);
+        assert_eq!(state("missingFiles"), TorrentState::MissingFiles);
+        assert_eq!(state("pausedUP"), TorrentState::PausedUp);
+        assert_eq!(state("stoppedUP"), TorrentState::StoppedUp);
+        assert_eq!(state("metaDL"), TorrentState::MetaDl);
+        assert_eq!(state("forcedMetaDL"), TorrentState::ForcedMetaDl);
+        assert_eq!(state("checkingResumeData"), TorrentState::CheckingResumeData);
+    }
+
+    #[test]
+    fn parses_states_it_doesnt_know_as_unknown() {
+        assert_eq!(state("someFutureState"), TorrentState::Unknown);
+    }
+
+    #[test]
+    fn puts_each_state_in_at_most_one_group() {
+        let names = [
+            "error",
+            "missingFiles",
+            "uploading",
+            "pausedUP",
+            "stoppedUP",
+            "queuedUP",
+            "stalledUP",
+            "checkingUP",
+            "forcedUP",
+            "allocating",
+            "downloading",
+            "metaDL",
+            "forcedMetaDL",
+            "pausedDL",
+            "stoppedDL",
+            "queuedDL",
+            "stalledDL",
+            "checkingDL",
+            "forcedDL",
+            "checkingResumeData",
+            "moving",
+            "unknown",
+        ];
+        for name in names {
+            let state = state(name);
+            let groups = [state.is_seeding(), state.is_stopped(), state.is_downloading()];
+            assert!(groups.iter().filter(|in_group| **in_group).count() <= 1, "{name}");
+        }
+    }
+
+    #[test]
+    fn groups_states_by_what_the_torrent_is_doing() {
+        assert!(state("stalledUP").is_seeding());
+        assert!(state("forcedUP").is_seeding());
+        assert!(state("pausedDL").is_stopped());
+        assert!(state("stoppedUP").is_stopped());
+        assert!(state("queuedDL").is_downloading());
+        assert!(state("metaDL").is_downloading());
+        assert!(!state("error").is_downloading());
+    }
+
+    #[test]
+    fn describes_states_for_people() {
+        assert_eq!(state("uploading").to_string(), "Seeding");
+        assert_eq!(state("pausedUP").to_string(), "Completed");
+        assert_eq!(state("stoppedDL").to_string(), "Stopped");
+        assert_eq!(state("metaDL").to_string(), "Fetching metadata");
+    }
+
+    #[test]
+    fn parses_a_torrent_without_optional_fields() {
+        let torrent: Torrent = serde_json::from_value(json!({
+            "hash": "abc",
+            "name": "Ubuntu",
+            "size": 1024,
+            "progress": 0.5,
+            "state": "downloading",
+            "dlspeed": 100,
+            "upspeed": 0,
+            "eta": 60,
+            "ratio": 0.1,
+            "num_seeds": 3,
+            "num_leechs": 4,
+            "added_on": 1_700_000_000,
+            "some_field_we_ignore": true,
+        }))
+        .unwrap();
+
+        assert_eq!(torrent.name, "Ubuntu");
+        assert_eq!(torrent.state, TorrentState::Downloading);
+        assert_eq!(torrent.category, "");
+        assert_eq!(torrent.dl_limit, 0);
+        assert_eq!(torrent.completion_on, 0);
+    }
+}
