@@ -1,0 +1,12 @@
+name: Feature request
+description: Suggest something new for qBit.
+assignees: bobbymannino
+type: Feature
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: What you're trying to do, and how you'd like qBit to handle it.
+    validations:
+      required: true

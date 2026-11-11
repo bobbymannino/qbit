@@ -1,0 +1,12 @@
+name: Test wanted
+description: Point out code or behaviour that should have a test.
+assignees: bobbymannino
+type: Task
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What should be tested?
+      description: The file, function or feature, and the cases the test should check.
+    validations:
+      required: true

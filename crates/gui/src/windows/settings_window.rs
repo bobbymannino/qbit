@@ -13,7 +13,7 @@ use gpui_kit::{
 };
 
 use crate::{
-    consts::{APP_ID, APP_TITLE, APP_VERSION, RELEASES_URL, REPO_URL},
+    consts::{APP_ID, APP_TITLE, APP_VERSION, NEW_ISSUE_URL, RELEASES_URL, REPO_URL},
     update::{Status, Updater},
     windows::{CurrentSession, OpenableWindow, Session, client_title_bar},
 };
@@ -85,7 +85,7 @@ impl OpenableWindow for SettingsWindow {
                 title: Some(format!("{APP_TITLE} — Settings").into()),
                 ..Default::default()
             }),
-            window_bounds: Some(WindowBounds::centered(Size::new(px(480.0), px(420.0)), cx)),
+            window_bounds: Some(WindowBounds::centered(Size::new(px(480.0), px(480.0)), cx)),
             is_resizable: false,
             ..Default::default()
         }
@@ -200,6 +200,41 @@ impl SettingsWindow {
     }
 }
 
+impl SettingsWindow {
+    /// Links to open a bug report, feature request or test request on GitHub.
+    fn render_feedback(cx: &App) -> impl IntoElement {
+        let theme = cx.theme();
+        // The bug report form's version and OS fields are filled in from here.
+        let bug_report = format!(
+            "{NEW_ISSUE_URL}?template=bug_report.yml&version={APP_VERSION}&os={}",
+            std::env::consts::OS
+        );
+        let feature_request = format!("{NEW_ISSUE_URL}?template=feature_request.yml");
+        let test_wanted = format!("{NEW_ISSUE_URL}?template=test_wanted.yml");
+
+        let link = |id: &'static str, label: &'static str, url: String| {
+            Button::new(id)
+                .link()
+                .label(label)
+                .small()
+                .on_click(move |_, _, cx| cx.open_url(&url))
+        };
+
+        v_flex()
+            .gap_1()
+            .child(div().text_sm().font_medium().child("Feedback"))
+            .child(
+                h_flex()
+                    .gap_4()
+                    .text_sm()
+                    .text_color(theme.muted_foreground)
+                    .child(link("report-bug", "Report a bug", bug_report))
+                    .child(link("request-feature", "Request a feature", feature_request))
+                    .child(link("want-test", "Ask for a test", test_wanted)),
+            )
+    }
+}
+
 impl Render for SettingsWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
@@ -221,7 +256,8 @@ impl Render for SettingsWindow {
                     .gap_6()
                     .child(div().child("Settings").font_bold().text_2xl())
                     .child(Self::render_updates(cx))
-                    .children(Self::render_account(cx)),
+                    .children(Self::render_account(cx))
+                    .child(Self::render_feedback(cx)),
             )
             .child(
                 h_flex()

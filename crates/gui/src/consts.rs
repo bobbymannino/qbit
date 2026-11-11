@@ -12,3 +12,6 @@ pub const REPO_URL: &str = "https://github.com/bobbymannino/qbit";
 
 /// The app's releases on GitHub, with the changes in each.
 pub const RELEASES_URL: &str = "https://github.com/bobbymannino/qbit/releases";
+
+/// Where a new GitHub issue is opened; `?template=` picks one of `.github/ISSUE_TEMPLATE`.
+pub const NEW_ISSUE_URL: &str = "https://github.com/bobbymannino/qbit/issues/new";

@@ -1,0 +1,22 @@
+name: Bug report
+description: Something in qBit isn't working right.
+assignees: bobbymannino
+type: Bug
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, how to make it happen, and any errors or screenshots.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: qBit version
+      description: Shown at the bottom of the settings window.
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macos, windows or linux
