@@ -5,7 +5,7 @@ use gpui_kit::{
     component::{
         ActiveTheme as _, Disableable as _, Sizable as _,
         button::{Button, ButtonVariants as _},
-        input::{InputState, NumberInput},
+        input::{Input, InputState},
         progress::Progress,
         scroll::ScrollableElement as _,
         table::TableState,
@@ -167,8 +167,7 @@ fn limits_section(limits: &SpeedLimits, enabled: bool, cx: &App) -> impl IntoEle
             .gap_0p5()
             .child(div().text_xs().text_color(theme.muted_foreground).child(label))
             .child(
-                NumberInput::new(input)
-                    .placeholder("Unlimited")
+                Input::new(input)
                     .suffix(div().text_xs().text_color(theme.muted_foreground).child("KiB/s"))
                     .small()
                     .disabled(!enabled),

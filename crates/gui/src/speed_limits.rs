@@ -9,9 +9,6 @@ use crate::torrent_table::TorrentTable;
 /// Limits are typed in KiB/s and sent to qBittorrent in bytes per second.
 const BYTES_PER_KIB: u64 = 1024;
 
-/// How far the up/down arrows move a limit, in KiB/s.
-const STEP_KIB: f64 = 100.0;
-
 /// Which speed a limit applies to.
 #[derive(Clone, Copy)]
 pub enum Direction {
@@ -38,8 +35,6 @@ impl SpeedLimits {
                 InputState::new(window, cx)
                     .placeholder("Unlimited")
                     .validate(|text, _| text.chars().all(|c| c.is_ascii_digit()))
-                    .step(STEP_KIB)
-                    .min(0.0)
             })
         };
 
