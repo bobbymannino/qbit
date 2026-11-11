@@ -45,16 +45,13 @@ pub fn details_panel(
         "—".to_owned()
     };
 
-    v_flex()
+    // The border sits on a wrapper that clips, and the content scrolls inside it,
+    // so scrolled content can't paint over the top and bottom border.
+    let content = v_flex()
         .id("details-panel")
-        .w(px(PANEL_WIDTH))
-        .flex_shrink_0()
-        .h_full()
+        .size_full()
         .gap_4()
         .p_3()
-        .border_1()
-        .border_color(theme.border)
-        .rounded(theme.radius)
         .overflow_y_scrollbar()
         .child(
             h_flex()
@@ -126,7 +123,17 @@ pub fn details_panel(
                 ("Hash", torrent.hash.clone()),
             ],
             cx,
-        ))
+        ));
+
+    div()
+        .w(px(PANEL_WIDTH))
+        .flex_shrink_0()
+        .h_full()
+        .border_1()
+        .border_color(theme.border)
+        .rounded(theme.radius)
+        .overflow_hidden()
+        .child(content)
 }
 
 /// A titled group of label/value pairs. Values wrap, so long paths stay readable.
