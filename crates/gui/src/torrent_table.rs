@@ -451,6 +451,29 @@ impl TorrentTable {
         Some(request)
     }
 
+    /// Limit the total download (or, if `download` is `false`, upload) speed of every
+    /// torrent to `limit` bytes per second, `0` meaning unlimited, in the background.
+    ///
+    /// Like [`TorrentTable::send_limit`], returns the request; `None` if not logged in.
+    pub fn send_global_limit(&self, download: bool, limit: u64) -> Option<tokio::task::JoinHandle<bool>> {
+        let actions = self.actions.as_ref()?;
+        let client = actions.client.clone();
+        let request = actions.runtime.spawn(async move {
+            let result = if download {
+                client.set_global_download_limit(limit).await
+            } else {
+                client.set_global_upload_limit(limit).await
+            };
+            if let Err(err) = result {
+                let which = if download { "download" } else { "upload" };
+                eprintln!("Failed to set the global {which} limit: {err}");
+                return false;
+            }
+            true
+        });
+        Some(request)
+    }
+
     /// Whether start/stop requests can be sent yet (i.e. logged in).
     pub const fn can_send(&self) -> bool {
         self.actions.is_some()

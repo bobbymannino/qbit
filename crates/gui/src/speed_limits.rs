@@ -2,7 +2,7 @@ use gpui_kit::{
     App, AppContext as _, Context, Entity, Focusable as _, Subscription, Window,
     component::input::{InputEvent, InputState},
 };
-use qbittorrent::Torrent;
+use qbittorrent::{Torrent, TransferInfo};
 use tokio::task::JoinHandle;
 
 /// Limits are typed in KiB/s and sent to qBittorrent in bytes per second.
@@ -46,6 +46,15 @@ impl From<&Torrent> for Limits {
         Self {
             download: torrent.dl_limit,
             upload: torrent.up_limit,
+        }
+    }
+}
+
+impl From<&TransferInfo> for Limits {
+    fn from(transfer: &TransferInfo) -> Self {
+        Self {
+            download: transfer.dl_rate_limit,
+            upload: transfer.up_rate_limit,
         }
     }
 }

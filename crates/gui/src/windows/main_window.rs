@@ -1,16 +1,17 @@
 use std::time::Duration;
 
 use gpui_kit::{
-    AnyElement, AnyWindowHandle, App, AppContext as _, AsyncApp, Context, Entity, Global, Render, Result, SharedString,
-    Size, Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions,
+    Anchor, AnyElement, AnyWindowHandle, App, AppContext as _, AsyncApp, Context, Entity, Focusable as _, Global,
+    Render, Result, SharedString, Size, Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds,
+    WindowOptions,
     assets::IconName,
     base::{StyledExt, h_flex, v_flex},
     component::{
         ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
         button::{Button, ButtonVariants as _, Toggle, ToggleGroup},
         input::{Input, InputEvent, InputState},
+        popover::Popover,
         table::{DataTable, TableEvent, TableState},
-        tooltip::Tooltip,
     },
     div,
     prelude::*,
@@ -35,6 +36,12 @@ use crate::{
 
 /// How often the torrent list is refreshed.
 const REFRESH_INTERVAL: Duration = Duration::from_millis(1_100);
+
+/// What the global speed limit inputs are filled in for, as opposed to a torrent's hash.
+const GLOBAL_LIMITS_KEY: &str = "global";
+
+/// Width of the global speed limit popovers.
+const LIMIT_POPOVER_WIDTH: f32 = 220.0;
 
 /// Where loading the torrent list is at.
 enum Status {
@@ -100,6 +107,8 @@ pub struct MainWindow {
     search: Entity<InputState>,
     /// The details panel's speed limit inputs for the selected torrent.
     limits: SpeedLimits,
+    /// The status bar's speed limit inputs for every torrent.
+    global_limits: SpeedLimits,
     _subscriptions: Vec<Subscription>,
     /// Logs in and refreshes the torrents; dropped (and so stopped) with the window.
     _refresh: Task<()>,
@@ -129,6 +138,7 @@ impl MainWindow {
         // Redraw when the selection changes, so the details panel follows it.
         let observe_table = cx.observe(&table, |_, _, cx| cx.notify());
         let limits = SpeedLimits::new(window, cx);
+        let global_limits = SpeedLimits::new(window, cx);
         let mut subscriptions = vec![
             observe_table,
             cx.subscribe(&table, |_, table, event: &TableEvent, cx| match event {
@@ -170,6 +180,18 @@ impl MainWindow {
                 Self::finish_when_answered(sent, |this| &mut this.limits, cx);
             }
         }));
+        subscriptions.extend(global_limits.subscribe(window, cx, |this: &mut Self, direction, cx| {
+            let Some(transfer) = &this.transfer else { return };
+            let rows = this.table.read(cx).delegate();
+            let download = matches!(direction, Direction::Download);
+            let send_limit = |limit| rows.send_global_limit(download, limit);
+            if let Some(sent) = this
+                .global_limits
+                .commit(direction, Limits::from(transfer), send_limit, cx)
+            {
+                Self::finish_when_answered(sent, |this| &mut this.global_limits, cx);
+            }
+        }));
 
         // Offer to install an update the startup check finds, whether it finished before
         // this window opened or finishes later.
@@ -197,6 +219,7 @@ impl MainWindow {
             table,
             search,
             limits,
+            global_limits,
             _subscriptions: subscriptions,
         }
     }
@@ -418,8 +441,14 @@ impl MainWindow {
         Some(details_panel(&torrent, &self.table, &self.limits, cx).into_any_element())
     }
 
-    /// Torrent count on the left; total download and upload speed on the right.
-    fn render_status_bar(&self, cx: &App) -> impl IntoElement {
+    /// Torrent count on the left; total download and upload speed on the right, each
+    /// opening a popover to limit it.
+    fn render_status_bar(&mut self, window: &mut Window, cx: &mut App) -> AnyElement {
+        if let Some(transfer) = &self.transfer {
+            self.global_limits
+                .sync(GLOBAL_LIMITS_KEY, Limits::from(transfer), window, cx);
+        }
+
         let theme = cx.theme();
         let count = self.table.read(cx).delegate().count(Filter::All);
         let torrents = if count == 1 {
@@ -428,17 +457,52 @@ impl MainWindow {
             format!("{count} torrents")
         };
 
-        let (down, up) = self
-            .transfer
-            .as_ref()
-            .map_or((0, 0), |transfer| (transfer.dl_info_speed, transfer.up_info_speed));
-        let speed = |icon: IconName, rate: u64, label: &'static str| {
-            h_flex()
-                .gap_1()
-                .child(Icon::new(icon).xsmall())
-                .child(format_rate(rate))
-                .id(label)
-                .tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
+        let transfer = self.transfer.as_ref();
+        let (down, up) = transfer.map_or((0, 0), |transfer| (transfer.dl_info_speed, transfer.up_info_speed));
+        let limits = transfer.map(Limits::from).unwrap_or_default();
+        let can_send = transfer.is_some() && self.table.read(cx).delegate().can_send();
+
+        let speed = |id: &'static str, icon: IconName, rate: u64, limit: i64, direction: Direction| {
+            let (input, tooltip, title) = match direction {
+                Direction::Download => (
+                    &self.global_limits.download,
+                    "Total download speed",
+                    "Max download speed",
+                ),
+                Direction::Upload => (&self.global_limits.upload, "Total upload speed", "Max upload speed"),
+            };
+            let label = match u64::try_from(limit) {
+                Ok(limit) if limit > 0 => format!("{} / {}", format_rate(rate), format_rate(limit)),
+                _ => format_rate(rate),
+            };
+            let enabled = can_send && !self.global_limits.is_sending(direction);
+            let input = input.clone();
+
+            Popover::new(id)
+                .anchor(Anchor::BottomRight)
+                // Focus the input on opening, so a limit can be typed straight away.
+                .track_focus(&input.read(cx).focus_handle(cx))
+                .trigger(
+                    Button::new(id)
+                        .icon(Icon::new(icon).xsmall())
+                        .label(label)
+                        .ghost()
+                        .xsmall()
+                        .tooltip(tooltip),
+                )
+                .content(move |_, _, cx| {
+                    let theme = cx.theme();
+                    v_flex()
+                        .gap_0p5()
+                        .w(px(LIMIT_POPOVER_WIDTH))
+                        .child(div().text_xs().text_color(theme.muted_foreground).child(title))
+                        .child(
+                            Input::new(&input)
+                                .suffix(div().text_xs().text_color(theme.muted_foreground).child("KiB/s"))
+                                .small()
+                                .disabled(!enabled),
+                        )
+                })
         };
 
         h_flex()
@@ -451,10 +515,23 @@ impl MainWindow {
             .child(torrents)
             .child(
                 h_flex()
-                    .gap_4()
-                    .child(speed(IconName::ArrowDown, down, "Total download speed"))
-                    .child(speed(IconName::ArrowUp, up, "Total upload speed")),
+                    .gap_1()
+                    .child(speed(
+                        "global-download",
+                        IconName::ArrowDown,
+                        down,
+                        limits.download,
+                        Direction::Download,
+                    ))
+                    .child(speed(
+                        "global-upload",
+                        IconName::ArrowUp,
+                        up,
+                        limits.upload,
+                        Direction::Upload,
+                    )),
             )
+            .into_any_element()
     }
 
     /// Ask whether to install the update the startup check found, if the user hasn't
@@ -533,6 +610,7 @@ impl OpenableWindow for MainWindow {
 impl Render for MainWindow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let details = self.render_details(window, cx);
+        let status_bar = self.render_status_bar(window, cx);
         let theme = cx.theme();
 
         let status: Option<SharedString> = match &self.status {
@@ -588,7 +666,7 @@ impl Render for MainWindow {
                     )
                     .children(details),
             )
-            .child(self.render_status_bar(cx));
+            .child(status_bar);
 
         v_flex()
             .size_full()
