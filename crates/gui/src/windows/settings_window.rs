@@ -1,9 +1,10 @@
 use gpui_kit::{
     AnyWindowHandle, App, Context, Global, Render, Size, Subscription, TitlebarOptions, Window, WindowBounds,
     WindowOptions,
+    assets::IconName,
     base::{StyledExt as _, h_flex, v_flex},
     component::{
-        ActiveTheme as _,
+        ActiveTheme as _, Sizable as _,
         button::{Button, ButtonVariants as _},
     },
     div,
@@ -13,13 +14,15 @@ use gpui_kit::{
 
 use crate::{
     consts::{APP_ID, APP_TITLE, APP_VERSION, RELEASES_URL, REPO_URL},
-    windows::{OpenableWindow, client_title_bar},
+    windows::{CurrentSession, OpenableWindow, Session, client_title_bar},
 };
 
 /// The app's settings.
 pub struct SettingsWindow {
     /// Forgets this window in [`OpenSettings`] once it's gone.
     _on_release: Subscription,
+    /// Redraws when logging in or out, so the account section follows.
+    _on_session: Subscription,
 }
 
 /// The open settings window, if any, so there's only ever one.
@@ -62,9 +65,10 @@ impl SettingsWindow {
         });
     }
 
-    fn new(cx: &Context<Self>) -> Self {
+    fn new(cx: &mut Context<Self>) -> Self {
         Self {
             _on_release: cx.on_release(|_, cx| cx.set_global(OpenSettings(None))),
+            _on_session: cx.observe_global::<CurrentSession>(|_, cx| cx.notify()),
         }
     }
 }
@@ -81,6 +85,36 @@ impl OpenableWindow for SettingsWindow {
             is_resizable: false,
             ..Default::default()
         }
+    }
+}
+
+impl SettingsWindow {
+    /// Who's logged in, with a button to log out; `None` while nobody is.
+    fn render_account(cx: &App) -> Option<impl IntoElement> {
+        let session = Session::current(cx)?;
+        let theme = cx.theme();
+        let who = format!("{} on {}", session.credentials.username, session.credentials.host);
+
+        Some(
+            h_flex()
+                .justify_between()
+                .gap_4()
+                .child(
+                    v_flex()
+                        .min_w_0()
+                        .gap_1()
+                        .child(div().text_sm().font_medium().child("Account"))
+                        .child(div().text_sm().text_color(theme.muted_foreground).truncate().child(who)),
+                )
+                .child(
+                    Button::new("log-out")
+                        .danger()
+                        .label("Log out")
+                        .icon(IconName::LogOut)
+                        .small()
+                        .on_click(|_, _, cx| Session::log_out(cx)),
+                ),
+        )
     }
 }
 
@@ -102,14 +136,18 @@ impl Render for SettingsWindow {
             .justify_between()
             .child(
                 v_flex()
-                    .gap_1()
+                    .gap_6()
                     .child(div().child("Settings").font_bold().text_2xl())
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child("Nothing to configure yet."),
-                    ),
+                    .child(Self::render_account(cx).map_or_else(
+                        || {
+                            div()
+                                .text_sm()
+                                .text_color(theme.muted_foreground)
+                                .child("Nothing to configure yet.")
+                                .into_any_element()
+                        },
+                        IntoElement::into_any_element,
+                    )),
             )
             .child(
                 h_flex()
