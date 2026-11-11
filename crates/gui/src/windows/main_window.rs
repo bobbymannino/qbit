@@ -9,7 +9,7 @@ use gpui_kit::{
         ActiveTheme as _, Disableable as _, Icon, Sizable as _,
         button::{Button, ButtonVariants as _, Toggle, ToggleGroup},
         input::{Input, InputEvent, InputState},
-        table::{DataTable, TableState},
+        table::{DataTable, TableEvent, TableState},
         tooltip::Tooltip,
     },
     div,
@@ -81,6 +81,16 @@ impl MainWindow {
         let limits = SpeedLimits::new(window, cx);
         let mut subscriptions = vec![
             observe_table,
+            // Clicking the selected torrent again closes its details panel.
+            cx.subscribe(&table, |_, table, event: &TableEvent, cx| {
+                if let TableEvent::SelectRow(row_ix) = *event {
+                    table.update(cx, |table, cx| {
+                        if table.delegate_mut().take_reselected(row_ix) {
+                            table.clear_selection(cx);
+                        }
+                    });
+                }
+            }),
             cx.subscribe_in(&search, window, |this, search, event: &InputEvent, _, cx| {
                 if matches!(event, InputEvent::Change) {
                     let query = search.read(cx).value();

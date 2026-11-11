@@ -1,7 +1,7 @@
 use std::{cell::Cell, cmp::Ordering, rc::Rc, sync::LazyLock};
 
 use gpui_kit::{
-    AnyElement, App, ClipboardItem, Context, IntoElement, SharedString, Window,
+    AnyElement, App, ClipboardItem, Context, Div, IntoElement, MouseButton, SharedString, Stateful, Window,
     assets::IconName,
     base::h_flex,
     component::{
@@ -181,6 +181,9 @@ pub struct TorrentTable {
     /// Columns in display order. The table passes display indices to the delegate, so
     /// this follows the user dragging columns around.
     columns: Vec<TorrentColumn>,
+    /// The row last pressed while it was already selected. Clicking the selected
+    /// torrent again deselects it, which closes the details panel.
+    pressed_selected_row: Option<usize>,
 }
 
 /// What a start/stop button needs to send its request.
@@ -295,6 +298,7 @@ impl TorrentTable {
             loading: true,
             actions: None,
             columns: Vec::new(),
+            pressed_selected_row: None,
         }
     }
 
@@ -424,6 +428,12 @@ impl TorrentTable {
 
     fn matches_query(&self, torrent: &Torrent) -> bool {
         self.query.is_empty() || Self::searchify(&torrent.name).contains(&Self::searchify(&self.query))
+    }
+
+    /// Whether a row selection is a click on row `row_ix` while it was already
+    /// selected. Forgets the press either way.
+    pub const fn take_reselected(&mut self, row_ix: usize) -> bool {
+        matches!(self.pressed_selected_row.take(), Some(pressed) if pressed == row_ix)
     }
 
     /// The torrent shown in row `row_ix`.
@@ -562,6 +572,18 @@ impl TableDelegate for TorrentTable {
                         delete.confirm(window, cx);
                     }
                 }),
+        )
+    }
+
+    fn render_tr(&mut self, row_ix: usize, _window: &mut Window, cx: &mut Context<TableState<Self>>) -> Stateful<Div> {
+        // Runs before the table's click handler selects the row, so it can tell
+        // whether the row was already selected.
+        div().id(("row", row_ix)).on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |table, _, _, _| {
+                let was_selected = table.selected_row() == Some(row_ix);
+                table.delegate_mut().pressed_selected_row = was_selected.then_some(row_ix);
+            }),
         )
     }
 
