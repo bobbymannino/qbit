@@ -1,4 +1,4 @@
-use gpui_kit::{App, KeyBinding};
+use gpui_kit::{App, KeyBinding, Menu, MenuItem, SystemMenuType};
 
 pub use actions::{CloseWindow, Quit};
 
@@ -16,7 +16,7 @@ mod actions {
     );
 }
 
-/// Register the app-wide hotkeys and what they do.
+/// Register the app-wide hotkeys, what they do, and the menu bar items that show them.
 pub fn init(cx: &mut App) {
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(close_window);
@@ -28,6 +28,16 @@ pub fn init(cx: &mut App) {
             CloseWindow,
             None,
         ),
+    ]);
+
+    // The first menu is the app menu on macOS. Each item shows its key binding.
+    cx.set_menus([
+        Menu::new("qBit").items([
+            MenuItem::os_submenu("Services", SystemMenuType::Services),
+            MenuItem::separator(),
+            MenuItem::action("Quit qBit", Quit),
+        ]),
+        Menu::new("File").items([MenuItem::action("Close Window", CloseWindow)]),
     ]);
 }
 
