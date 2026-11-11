@@ -55,7 +55,17 @@ cp packaging/macos/qBit.icns "$app/Contents/Resources/"
 sed "s/__VERSION__/$version/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
 plutil -lint "$app/Contents/Info.plist" > /dev/null
 
-codesign --force --deep --sign "${QBIT_SIGN_IDENTITY:--}" "$app"
+if [ -n "${QBIT_SIGN_IDENTITY:-}" ]; then
+    codesign --force --deep --sign "$QBIT_SIGN_IDENTITY" "$app"
+else
+    # An ad-hoc signature's designated requirement defaults to the build's cdhash, which
+    # changes every release. The keychain trusts the app that saved the login by that
+    # requirement, so each update would ask for the user's password to read it again.
+    # Pinning it to the bundle ID keeps every release trusted.
+    bundle_id="$(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist")"
+    codesign --force --deep --sign - --identifier "$bundle_id" \
+        -r="designated => identifier \"$bundle_id\"" "$app"
+fi
 codesign --verify --deep --strict "$app"
 
 # A disk image with an Applications shortcut to drag the app onto.
