@@ -103,12 +103,28 @@ impl MainWindow {
         ];
         subscriptions.extend(limits.subscribe(window, cx, |this: &mut Self, direction, cx| {
             let table = this.table.read(cx);
-            if let Some(torrent) = table
+            let Some(torrent) = table
                 .selected_row()
                 .and_then(|row_ix| table.delegate().torrent_at(row_ix))
-            {
-                this.limits.commit(direction, torrent, table.delegate(), cx);
-            }
+            else {
+                return;
+            };
+            let Some(sent) = this.limits.commit(direction, torrent, table.delegate(), cx) else {
+                return;
+            };
+
+            // The input stays disabled until qBittorrent has answered.
+            cx.notify();
+            cx.spawn(async move |this, cx| {
+                // A failed request is logged by the task.
+                let succeeded = sent.request.await.unwrap_or(false);
+                this.update(cx, |this, cx| {
+                    this.limits.finish(sent.direction, sent.id, succeeded);
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
         }));
 
         Self {

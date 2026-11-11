@@ -3,6 +3,7 @@ use gpui_kit::{
     component::input::{InputEvent, InputState},
 };
 use qbittorrent::Torrent;
+use tokio::task::JoinHandle;
 
 use crate::torrent_table::TorrentTable;
 
@@ -26,6 +27,20 @@ pub struct SpeedLimits {
     /// Until they are, refreshes leave the typed value alone instead of flashing the old one.
     pending_download: Option<String>,
     pending_upload: Option<String>,
+    /// The request being sent for each limit, if any: the torrent's hash and the
+    /// request's id. The input is disabled while its torrent's request is in flight.
+    sending_download: Option<(String, u64)>,
+    sending_upload: Option<(String, u64)>,
+    /// Tells requests apart, so a finished one only clears its own entry.
+    next_request_id: u64,
+}
+
+/// A limit request that [`SpeedLimits::commit`] sent. Await `request` (whether it
+/// worked), then call [`SpeedLimits::finish`] to enable the input again.
+pub struct Sent {
+    pub direction: Direction,
+    pub id: u64,
+    pub request: JoinHandle<bool>,
 }
 
 impl SpeedLimits {
@@ -44,6 +59,9 @@ impl SpeedLimits {
             hash: None,
             pending_download: None,
             pending_upload: None,
+            sending_download: None,
+            sending_upload: None,
+            next_request_id: 0,
         }
     }
 
@@ -88,27 +106,67 @@ impl SpeedLimits {
         }
     }
 
+    /// Whether the `direction` limit of the shown torrent is being sent.
+    pub fn is_sending(&self, direction: Direction) -> bool {
+        let sending = match direction {
+            Direction::Download => &self.sending_download,
+            Direction::Upload => &self.sending_upload,
+        };
+        matches!((sending, &self.hash), (Some((sending, _)), Some(hash)) if sending == hash)
+    }
+
     /// Send what's typed in the `direction` input for the selected torrent, if it
-    /// differs from the torrent's current limit.
-    pub fn commit(&mut self, direction: Direction, torrent: &Torrent, table: &TorrentTable, cx: &App) {
-        let (input, pending, current) = match direction {
-            Direction::Download => (&self.download, &mut self.pending_download, torrent.dl_limit),
-            Direction::Upload => (&self.upload, &mut self.pending_upload, torrent.up_limit),
+    /// differs from the torrent's current limit and nothing is being sent for it yet.
+    pub fn commit(&mut self, direction: Direction, torrent: &Torrent, table: &TorrentTable, cx: &App) -> Option<Sent> {
+        if self.is_sending(direction) {
+            return None;
+        }
+        let (input, pending, sending, current) = match direction {
+            Direction::Download => (
+                &self.download,
+                &mut self.pending_download,
+                &mut self.sending_download,
+                torrent.dl_limit,
+            ),
+            Direction::Upload => (
+                &self.upload,
+                &mut self.pending_upload,
+                &mut self.sending_upload,
+                torrent.up_limit,
+            ),
         };
         let text = input.read(cx).value();
         let text = text.trim();
-        if text == format_limit(current) {
-            return;
+        if text == format_limit(current) || pending.as_deref() == Some(text) {
+            return None;
         }
 
         // Empty (or 0) is unlimited; anything unparseable is put back on the next sync.
-        let Ok(kib) = (if text.is_empty() { Ok(0) } else { text.parse::<u64>() }) else {
-            return;
-        };
+        let kib = if text.is_empty() { 0 } else { text.parse::<u64>().ok()? };
         let bytes = kib.saturating_mul(BYTES_PER_KIB);
-        *pending = Some(format_limit(i64::try_from(bytes).unwrap_or(i64::MAX)));
         let download = matches!(direction, Direction::Download);
-        table.send_limit(&torrent.hash, download, bytes);
+        let request = table.send_limit(&torrent.hash, download, bytes)?;
+
+        *pending = Some(format_limit(i64::try_from(bytes).unwrap_or(i64::MAX)));
+        let id = self.next_request_id;
+        self.next_request_id = id.wrapping_add(1);
+        *sending = Some((torrent.hash.clone(), id));
+        Some(Sent { direction, id, request })
+    }
+
+    /// Mark request `id` as finished, enabling its input again. If it failed, the
+    /// next sync puts the torrent's actual limit back in the input.
+    pub fn finish(&mut self, direction: Direction, id: u64, succeeded: bool) {
+        let (sending, pending) = match direction {
+            Direction::Download => (&mut self.sending_download, &mut self.pending_download),
+            Direction::Upload => (&mut self.sending_upload, &mut self.pending_upload),
+        };
+        if matches!(sending, Some((_, sending_id)) if *sending_id == id) {
+            *sending = None;
+            if !succeeded {
+                *pending = None;
+            }
+        }
     }
 }
 

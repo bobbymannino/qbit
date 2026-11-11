@@ -358,14 +358,14 @@ impl TorrentTable {
     /// Limit `hash`'s download (or, if `download` is `false`, upload) speed to
     /// `limit` bytes per second, `0` meaning unlimited, in the background.
     ///
-    /// The new limit shows up on the next refresh.
-    pub fn send_limit(&self, hash: &str, download: bool, limit: u64) {
-        let Some(actions) = &self.actions else {
-            return;
-        };
+    /// The new limit shows up on the next refresh. Returns the request, which
+    /// finishes with whether it worked once qBittorrent has answered; `None` if
+    /// not logged in.
+    pub fn send_limit(&self, hash: &str, download: bool, limit: u64) -> Option<tokio::task::JoinHandle<bool>> {
+        let actions = self.actions.as_ref()?;
         let client = actions.client.clone();
         let hash = hash.to_owned();
-        actions.runtime.spawn(async move {
+        let request = actions.runtime.spawn(async move {
             let result = if download {
                 client.set_download_limit(&[&hash], limit).await
             } else {
@@ -374,8 +374,11 @@ impl TorrentTable {
             if let Err(err) = result {
                 let which = if download { "download" } else { "upload" };
                 eprintln!("Failed to set the {which} limit of torrent {hash}: {err}");
+                return false;
             }
+            true
         });
+        Some(request)
     }
 
     /// Whether start/stop requests can be sent yet (i.e. logged in).

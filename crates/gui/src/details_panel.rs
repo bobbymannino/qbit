@@ -18,7 +18,7 @@ use qbittorrent::Torrent;
 
 use crate::{
     format::{format_ago, format_bytes, format_eta, format_rate},
-    speed_limits::SpeedLimits,
+    speed_limits::{Direction, SpeedLimits},
     torrent_table::TorrentTable,
 };
 
@@ -158,11 +158,12 @@ fn section<const N: usize>(title: &'static str, fields: [(&'static str, String);
 }
 
 /// Inputs for the torrent's download and upload speed limits, applied on Enter or
-/// when focus leaves them. Empty means unlimited.
+/// when focus leaves them. Empty means unlimited. Each is disabled while its new
+/// limit is being sent.
 fn limits_section(limits: &SpeedLimits, enabled: bool, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
 
-    let field = |label: &'static str, input: &Entity<InputState>| {
+    let field = |label: &'static str, input: &Entity<InputState>, direction: Direction| {
         v_flex()
             .gap_0p5()
             .child(div().text_xs().text_color(theme.muted_foreground).child(label))
@@ -170,7 +171,7 @@ fn limits_section(limits: &SpeedLimits, enabled: bool, cx: &App) -> impl IntoEle
                 Input::new(input)
                     .suffix(div().text_xs().text_color(theme.muted_foreground).child("KiB/s"))
                     .small()
-                    .disabled(!enabled),
+                    .disabled(!enabled || limits.is_sending(direction)),
             )
     };
 
@@ -183,8 +184,8 @@ fn limits_section(limits: &SpeedLimits, enabled: bool, cx: &App) -> impl IntoEle
                 .text_color(theme.muted_foreground)
                 .child("SPEED LIMITS"),
         )
-        .child(field("Max download speed", &limits.download))
-        .child(field("Max upload speed", &limits.upload))
+        .child(field("Max download speed", &limits.download, Direction::Download))
+        .child(field("Max upload speed", &limits.upload, Direction::Upload))
 }
 
 /// `value`, or `—` when it's empty.
