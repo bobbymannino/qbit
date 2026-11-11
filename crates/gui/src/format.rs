@@ -74,3 +74,66 @@ pub fn format_ago(timestamp: i64) -> String {
         .map_or(0, |since| since.as_secs());
     format!("{} ago", format_duration(now.saturating_sub(then)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{format_ago, format_bytes, format_duration, format_eta, format_rate, format_speed};
+
+    #[test]
+    fn formats_bytes_with_binary_units() {
+        assert_eq!(format_bytes(0), "0 B");
+        assert_eq!(format_bytes(1023), "1023 B");
+        assert_eq!(format_bytes(1024), "1.0 KiB");
+        assert_eq!(format_bytes(1536), "1.5 KiB");
+        assert_eq!(format_bytes(5 * 1024 * 1024 * 1024), "5.0 GiB");
+    }
+
+    #[test]
+    fn rounds_bytes_down_to_one_decimal() {
+        // 1.99 KiB isn't rounded up to 2.0.
+        assert_eq!(format_bytes(2038), "1.9 KiB");
+    }
+
+    #[test]
+    fn stops_at_the_largest_unit() {
+        assert_eq!(format_bytes(u64::MAX), "16383.9 PiB");
+    }
+
+    #[test]
+    fn speeds_are_blank_when_idle_but_rates_are_not() {
+        assert_eq!(format_speed(0), "");
+        assert_eq!(format_speed(2048), "2.0 KiB/s");
+        assert_eq!(format_rate(0), "0 B/s");
+        assert_eq!(format_rate(2048), "2.0 KiB/s");
+    }
+
+    #[test]
+    fn formats_durations_as_their_two_largest_units() {
+        assert_eq!(format_duration(0), "0s");
+        assert_eq!(format_duration(45), "45s");
+        assert_eq!(format_duration(61), "1m 1s");
+        assert_eq!(format_duration(3_600), "1h 0m");
+        assert_eq!(format_duration(8_100), "2h 15m");
+        assert_eq!(format_duration(90_061), "1d 1h");
+    }
+
+    #[test]
+    fn shows_never_ending_etas_as_infinity() {
+        assert_eq!(format_eta(90), "1m 30s");
+        assert_eq!(format_eta(8_640_000), "∞");
+        assert_eq!(format_eta(-1), "∞");
+    }
+
+    #[test]
+    fn shows_unset_timestamps_as_a_dash() {
+        assert_eq!(format_ago(0), "—");
+        assert_eq!(format_ago(-1), "—");
+    }
+
+    #[test]
+    fn says_how_long_ago_a_timestamp_was() {
+        let ago = format_ago(1);
+        assert!(ago.ends_with("ago"), "{ago}");
+        assert!(ago.contains('d'), "{ago}");
+    }
+}
