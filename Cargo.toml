@@ -2,11 +2,12 @@
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.3.2"
+version = "0.4.0"
 rust-version = "1.95"
 edition = "2024"
 
 [workspace.dependencies]
+dirs = "7"
 flate2 = "1.1"
 gpui-kit = "0.9.1"
 keyring = "4.2"
