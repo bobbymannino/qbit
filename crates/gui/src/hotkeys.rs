@@ -12,7 +12,7 @@ mod actions {
         [
             /// Quit the app, closing every window.
             Quit,
-            /// Close the focused window; closing the last one quits the app.
+            /// Close the focused window; closing the main (or login) window quits the app.
             CloseWindow,
             /// Open the settings window, or close it if it's already open.
             ToggleSettings,
