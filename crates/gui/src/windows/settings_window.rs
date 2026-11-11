@@ -1,15 +1,18 @@
 use gpui_kit::{
     AnyWindowHandle, App, Context, Global, Render, Size, Subscription, TitlebarOptions, Window, WindowBounds,
     WindowOptions,
-    base::{StyledExt as _, v_flex},
-    component::ActiveTheme as _,
+    base::{StyledExt as _, h_flex, v_flex},
+    component::{
+        ActiveTheme as _,
+        button::{Button, ButtonVariants as _},
+    },
     div,
     prelude::*,
     px,
 };
 
 use crate::{
-    consts::{APP_ID, APP_TITLE},
+    consts::{APP_ID, APP_TITLE, APP_VERSION, RELEASES_URL, REPO_URL},
     windows::OpenableWindow,
 };
 
@@ -85,18 +88,44 @@ impl Render for SettingsWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
 
+        let link = |id: &'static str, label: &'static str, url: &'static str| {
+            Button::new(id)
+                .link()
+                .label(label)
+                .on_click(move |_, _, cx| cx.open_url(url))
+        };
+
         v_flex()
             .size_full()
             .p_8()
-            .gap_1()
+            .justify_between()
             .bg(theme.background)
             .text_color(theme.foreground)
-            .child(div().child("Settings").font_bold().text_2xl())
             .child(
-                div()
+                v_flex()
+                    .gap_1()
+                    .child(div().child("Settings").font_bold().text_2xl())
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(theme.muted_foreground)
+                            .child("Nothing to configure yet."),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .justify_between()
                     .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child("Nothing to configure yet."),
+                    .child(
+                        div()
+                            .text_color(theme.muted_foreground)
+                            .child(format!("{APP_TITLE} v{APP_VERSION}")),
+                    )
+                    .child(h_flex().gap_4().child(link("repo", "GitHub", REPO_URL)).child(link(
+                        "changelog",
+                        "Changelog",
+                        RELEASES_URL,
+                    ))),
             )
     }
 }
