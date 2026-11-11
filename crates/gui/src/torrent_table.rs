@@ -1,12 +1,13 @@
-use std::{cmp::Ordering, sync::LazyLock};
+use std::{cell::Cell, cmp::Ordering, rc::Rc, sync::LazyLock};
 
 use gpui_kit::{
     AnyElement, App, ClipboardItem, Context, IntoElement, SharedString, Window,
     assets::IconName,
     base::h_flex,
     component::{
-        Disableable as _, Sizable as _,
-        button::{Button, ButtonVariants as _},
+        ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
+        button::{Button, ButtonVariant, ButtonVariants as _},
+        checkbox::Checkbox,
         menu::{PopupMenu, PopupMenuItem},
         progress::Progress,
         table::{Column, ColumnSort, TableDelegate, TableState},
@@ -219,6 +220,65 @@ impl Actions {
     }
 }
 
+/// A torrent that can be deleted, once the user confirms.
+#[derive(Clone)]
+pub struct DeleteRequest {
+    actions: Actions,
+    hash: String,
+    name: String,
+}
+
+impl DeleteRequest {
+    /// Ask whether to delete the torrent, offering to also remove its content files,
+    /// and delete it if the user agrees.
+    ///
+    /// The torrent disappears on the next refresh.
+    pub fn confirm(self, window: &Window, cx: &mut App) {
+        let delete_files = Rc::new(Cell::new(false));
+
+        // Deferred so a context menu that triggered this has closed (and given back
+        // focus) before the dialog takes it.
+        window.defer(cx, move |window, cx| {
+            window.open_alert_dialog(cx, move |alert, _, _| {
+                let toggle = Rc::clone(&delete_files);
+                let chosen = Rc::clone(&delete_files);
+                let request = self.clone();
+
+                alert
+                    .confirm()
+                    .title("Delete torrent?")
+                    .description(format!("\u{201c}{}\u{201d} will be removed from qBittorrent.", self.name))
+                    .child(
+                        Checkbox::new("delete-files")
+                            .label("Also remove content files")
+                            .checked(delete_files.get())
+                            .on_click(move |checked, window, _| {
+                                toggle.set(*checked);
+                                window.refresh();
+                            }),
+                    )
+                    .ok_text("Delete")
+                    .ok_variant(ButtonVariant::Danger)
+                    .on_ok(move |_, _, _| {
+                        request.send(chosen.get());
+                        true
+                    })
+            });
+        });
+    }
+
+    /// Delete the torrent in the background, with its files if `delete_files`.
+    fn send(&self, delete_files: bool) {
+        let client = self.actions.client.clone();
+        let hash = self.hash.clone();
+        self.actions.runtime.spawn(async move {
+            if let Err(err) = client.delete(&[&hash], delete_files).await {
+                eprintln!("Failed to delete torrent {hash}: {err}");
+            }
+        });
+    }
+}
+
 impl TorrentTable {
     const SEARCHIFY_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\W+").unwrap());
 
@@ -277,6 +337,15 @@ impl TorrentTable {
                 }
             })
             .into_any_element()
+    }
+
+    /// A request to delete `torrent`; `None` until logged in.
+    pub fn delete_request(&self, torrent: &Torrent) -> Option<DeleteRequest> {
+        self.actions.clone().map(|actions| DeleteRequest {
+            actions,
+            hash: torrent.hash.clone(),
+            name: torrent.name.clone(),
+        })
     }
 
     /// Whether start/stop requests can be sent yet (i.e. logged in).
@@ -430,13 +499,15 @@ impl TableDelegate for TorrentTable {
         row_ix: usize,
         menu: PopupMenu,
         _window: &mut Window,
-        _cx: &mut Context<TableState<Self>>,
+        cx: &mut Context<TableState<Self>>,
     ) -> PopupMenu {
         let Some(torrent) = self.torrents.get(row_ix) else {
             return menu;
         };
 
         let name = torrent.name.clone();
+        let delete = self.delete_request(torrent);
+        let danger = cx.theme().danger;
         // Older qBittorrent versions don't report `content_path`.
         let path = if torrent.content_path.is_empty() {
             torrent.save_path.clone()
@@ -453,6 +524,18 @@ impl TableDelegate for TorrentTable {
             PopupMenuItem::new("Copy file path")
                 .icon(IconName::FolderOpen)
                 .on_click(move |_, _, cx| copy(cx, &path)),
+        )
+        .separator()
+        .item(
+            // Red, as deleting can't be undone.
+            PopupMenuItem::element(move |_, _| div().text_color(danger).child("Delete…"))
+                .icon(Icon::new(IconName::Trash).text_color(danger))
+                .disabled(delete.is_none())
+                .on_click(move |_, window, cx| {
+                    if let Some(delete) = delete.clone() {
+                        delete.confirm(window, cx);
+                    }
+                }),
         )
     }
 

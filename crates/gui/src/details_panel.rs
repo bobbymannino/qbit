@@ -3,7 +3,7 @@ use gpui_kit::{
     assets::IconName,
     base::{StyledExt, h_flex, v_flex},
     component::{
-        ActiveTheme as _, Sizable as _,
+        ActiveTheme as _, Disableable as _, Sizable as _,
         button::{Button, ButtonVariants as _},
         progress::Progress,
         scroll::ScrollableElement as _,
@@ -28,6 +28,7 @@ const PANEL_WIDTH: f32 = 320.0;
 pub fn details_panel(torrent: &Torrent, table: &Entity<TableState<TorrentTable>>, cx: &App) -> impl IntoElement {
     let theme = cx.theme();
     let percent = torrent.progress * 100.0;
+    let delete = table.read(cx).delegate().delete_request(torrent);
     let table = table.clone();
 
     let completed = if torrent.completion_on > 0 {
@@ -53,6 +54,19 @@ pub fn details_panel(torrent: &Torrent, table: &Entity<TableState<TorrentTable>>
                 .justify_between()
                 .gap_2()
                 .child(div().flex_1().min_w_0().font_semibold().child(torrent.name.clone()))
+                .child(
+                    Button::new("delete-torrent")
+                        .icon(IconName::Trash)
+                        .danger()
+                        .xsmall()
+                        .tooltip("Delete")
+                        .disabled(delete.is_none())
+                        .on_click(move |_, window, cx| {
+                            if let Some(delete) = delete.clone() {
+                                delete.confirm(window, cx);
+                            }
+                        }),
+                )
                 .child(
                     Button::new("close-details")
                         .icon(IconName::Close)

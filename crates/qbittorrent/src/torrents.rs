@@ -234,6 +234,34 @@ impl Client {
         self.stop(&["all"]).await
     }
 
+    /// Remove the torrents with the given hashes, also deleting their downloaded
+    /// files from disk if `delete_files` is `true`.
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotLoggedIn`] if there is no valid session.
+    /// - [`Error::UnexpectedStatus`] for any other non-success response.
+    /// - [`Error::Http`] if the request fails.
+    pub async fn delete(&self, hashes: &[&str], delete_files: bool) -> Result<(), Error> {
+        let url = self.endpoint("api/v2/torrents/delete")?;
+        let hashes = hashes.join("|");
+        let delete_files = if delete_files { "true" } else { "false" };
+
+        let res = self
+            .http
+            .post(url)
+            .header(header::REFERER, self.base.as_str())
+            .form(&[("hashes", hashes.as_str()), ("deleteFiles", delete_files)])
+            .send()
+            .await?;
+
+        match res.status() {
+            StatusCode::FORBIDDEN => Err(Error::NotLoggedIn),
+            status if !status.is_success() => Err(Error::UnexpectedStatus(status)),
+            _ => Ok(()),
+        }
+    }
+
     /// POST `hashes` to `api/v2/torrents/{action}`.
     ///
     /// qBittorrent 5 renamed `pause`/`resume` to `stop`/`start`, so on a 404 this

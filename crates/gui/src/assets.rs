@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use gpui_kit::{AssetSource, Result, SharedString, assets::Assets};
 
-gpui_kit::assets::icon_assets!(ExtraIcons, [LogOut]);
+gpui_kit::assets::icon_assets!(ExtraIcons, [LogOut, Trash]);
 
 /// gpui-kit's component icons plus the [`ExtraIcons`] this app uses.
 pub struct AppAssets;
