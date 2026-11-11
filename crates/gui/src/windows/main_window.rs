@@ -27,7 +27,7 @@ use crate::{
     prefs::Prefs,
     runtime::Tokio,
     session::login,
-    speed_limits::SpeedLimits,
+    speed_limits::{Direction, Limits, Sent, SpeedLimits},
     torrent_table::{Filter, TorrentTable},
     update::Updater,
     windows::{LoginWindow, OpenableWindow, SettingsWindow, client_title_bar},
@@ -163,22 +163,12 @@ impl MainWindow {
             else {
                 return;
             };
-            let Some(sent) = this.limits.commit(direction, torrent, table.delegate(), cx) else {
-                return;
-            };
-
-            // The input stays disabled until qBittorrent has answered.
-            cx.notify();
-            cx.spawn(async move |this, cx| {
-                // A failed request is logged by the task.
-                let succeeded = sent.request.await.unwrap_or(false);
-                this.update(cx, |this, cx| {
-                    this.limits.finish(sent.direction, sent.id, succeeded);
-                    cx.notify();
-                })
-                .ok();
-            })
-            .detach();
+            let rows = table.delegate();
+            let download = matches!(direction, Direction::Download);
+            let send_limit = |limit| rows.send_limit(&torrent.hash, download, limit);
+            if let Some(sent) = this.limits.commit(direction, Limits::from(torrent), send_limit, cx) {
+                Self::finish_when_answered(sent, |this| &mut this.limits, cx);
+            }
         }));
 
         // Offer to install an update the startup check finds, whether it finished before
@@ -300,6 +290,21 @@ impl MainWindow {
         })
     }
 
+    /// Keep `limits`' input disabled until qBittorrent has answered `sent`, then enable it again.
+    fn finish_when_answered(sent: Sent, limits: fn(&mut Self) -> &mut SpeedLimits, cx: &mut Context<Self>) {
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            // A failed request is logged by the task.
+            let succeeded = sent.request.await.unwrap_or(false);
+            this.update(cx, |this, cx| {
+                limits(this).finish(sent.direction, sent.id, succeeded);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     /// Put fresh torrents in the table, keeping the selected torrent selected.
     ///
     /// Returns `false` if the window has closed.
@@ -409,7 +414,7 @@ impl MainWindow {
     fn render_details(&mut self, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
         let table = self.table.read(cx);
         let torrent = table.delegate().torrent_at(table.selected_row()?)?.clone();
-        self.limits.sync(&torrent, window, cx);
+        self.limits.sync(&torrent.hash, Limits::from(&torrent), window, cx);
         Some(details_panel(&torrent, &self.table, &self.limits, cx).into_any_element())
     }
 
