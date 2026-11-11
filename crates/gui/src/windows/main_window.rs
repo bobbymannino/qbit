@@ -7,7 +7,7 @@ use gpui_kit::{
     base::{StyledExt, h_flex, v_flex},
     component::{
         ActiveTheme as _, Disableable as _, Icon, Sizable as _,
-        button::{Button, Toggle, ToggleGroup},
+        button::{Button, ButtonVariants as _, Toggle, ToggleGroup},
         input::{Input, InputEvent, InputState},
         table::{DataTable, TableEvent, TableState},
         tooltip::Tooltip,
@@ -23,11 +23,12 @@ use crate::{
     credentials::Credentials,
     details_panel::details_panel,
     format::format_rate,
+    hotkeys::ToggleSettings,
     runtime::Tokio,
     session::login,
     speed_limits::SpeedLimits,
     torrent_table::{Filter, TorrentTable},
-    windows::{LoginWindow, OpenableWindow, client_title_bar},
+    windows::{LoginWindow, OpenableWindow, SettingsWindow, client_title_bar},
 };
 
 /// How often the torrent list is refreshed.
@@ -495,7 +496,18 @@ impl Render for MainWindow {
             .min_h_0()
             .p_4()
             .gap_4()
-            .child(div().child(APP_TITLE).font_bold().text_3xl())
+            .child(
+                h_flex()
+                    .justify_between()
+                    .child(div().child(APP_TITLE).font_bold().text_3xl())
+                    .child(
+                        Button::new("settings")
+                            .icon(IconName::Settings)
+                            .ghost()
+                            .tooltip_with_action("Settings", &ToggleSettings, None)
+                            .on_click(|_, _, cx| SettingsWindow::toggle(cx)),
+                    ),
+            )
             .children(status.map(|status| div().text_color(theme.muted_foreground).child(status)))
             .child(
                 h_flex().justify_between().gap_2().child(self.render_filters(cx)).child(
