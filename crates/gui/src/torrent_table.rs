@@ -973,3 +973,130 @@ mod tests {
         assert_eq!(saved.get("name"), Some(&300.0));
     }
 }
+
+#[cfg(test)]
+mod ui_tests {
+    use gpui_kit::{
+        AnyWindowHandle, App, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render, Styled as _,
+        TestAppContext, Window,
+        component::table::{DataTable, TableState},
+        div,
+        test::TestWindowExt as _,
+    };
+    use qbittorrent::Torrent;
+
+    use super::{Filter, TorrentTable};
+    use crate::test_support::{MockQbittorrent, open_window, torrent};
+
+    struct Host {
+        table: Entity<TableState<TorrentTable>>,
+    }
+
+    impl Render for Host {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().child(DataTable::new(&self.table))
+        }
+    }
+
+    type View = (AnyWindowHandle, Entity<Host>);
+
+    /// Show `torrents` in the table, logged in to `qbittorrent` if given.
+    fn open(cx: &mut TestAppContext, torrents: Vec<Torrent>, qbittorrent: Option<&MockQbittorrent>) -> View {
+        open_window(cx, |window, cx| {
+            cx.new(|cx| {
+                let mut rows = TorrentTable::new();
+                rows.set_torrents(torrents);
+                if let Some(qbittorrent) = qbittorrent {
+                    rows.set_client(qbittorrent.client.clone(), qbittorrent.runtime.handle().clone());
+                }
+                Host {
+                    table: cx.new(|cx| TableState::new(rows, window, cx)),
+                }
+            })
+        })
+    }
+
+    /// Render a frame, then run `f` on the window.
+    fn with_window<R>(cx: &mut TestAppContext, (handle, _): &View, f: impl FnOnce(&mut Window, &mut App) -> R) -> R {
+        cx.run_until_parked();
+        cx.update_window(*handle, |_, window, cx| {
+            window.render_frame(cx);
+            f(window, cx)
+        })
+        .unwrap()
+    }
+
+    fn shows(cx: &mut TestAppContext, view: &View, id: &'static str) -> bool {
+        with_window(cx, view, |window, _| window.try_find(id).is_some())
+    }
+
+    fn mixed() -> Vec<Torrent> {
+        vec![
+            torrent("a", "Ubuntu", "downloading"),
+            torrent("b", "Debian", "uploading"),
+            torrent("c", "Fedora", "stoppedDL"),
+        ]
+    }
+
+    #[gpui_kit::test]
+    fn shows_a_start_or_stop_button_for_every_torrent(cx: &mut TestAppContext) {
+        let view = open(cx, mixed(), None);
+        assert!(shows(cx, &view, "toggle-a"));
+        assert!(shows(cx, &view, "toggle-b"));
+        assert!(shows(cx, &view, "toggle-c"));
+    }
+
+    #[gpui_kit::test]
+    fn leaves_out_torrents_the_filter_hides(cx: &mut TestAppContext) {
+        let view = open(cx, mixed(), None);
+        cx.update(|cx| {
+            let table = view.1.read(cx).table.clone();
+            table.update(cx, |table, cx| {
+                table.delegate_mut().set_filter(Filter::Stopped);
+                cx.notify();
+            });
+        });
+
+        assert!(!shows(cx, &view, "toggle-a"));
+        assert!(!shows(cx, &view, "toggle-b"));
+        assert!(shows(cx, &view, "toggle-c"));
+    }
+
+    #[gpui_kit::test]
+    fn disables_starting_and_stopping_until_logged_in(cx: &mut TestAppContext) {
+        let view = open(cx, mixed(), None);
+        let disabled = with_window(cx, &view, |window, _| window.find("toggle-a").disabled());
+        assert_eq!(disabled, Some(true));
+    }
+
+    #[gpui_kit::test]
+    fn stops_a_running_torrent(cx: &mut TestAppContext) {
+        let qbittorrent = MockQbittorrent::start();
+        let view = open(cx, mixed(), Some(&qbittorrent));
+        with_window(cx, &view, |window, cx| window.click("toggle-a", cx));
+
+        let request = qbittorrent.wait_for("/api/v2/torrents/stop");
+        assert_eq!(String::from_utf8_lossy(&request.body), "hashes=a");
+    }
+
+    #[gpui_kit::test]
+    fn starts_a_stopped_torrent(cx: &mut TestAppContext) {
+        let qbittorrent = MockQbittorrent::start();
+        let view = open(cx, mixed(), Some(&qbittorrent));
+        with_window(cx, &view, |window, cx| window.click("toggle-c", cx));
+
+        let request = qbittorrent.wait_for("/api/v2/torrents/start");
+        assert_eq!(String::from_utf8_lossy(&request.body), "hashes=c");
+    }
+
+    #[gpui_kit::test]
+    fn starting_or_stopping_doesnt_select_the_row(cx: &mut TestAppContext) {
+        let qbittorrent = MockQbittorrent::start();
+        let view = open(cx, mixed(), Some(&qbittorrent));
+        with_window(cx, &view, |window, cx| window.click("toggle-a", cx));
+        qbittorrent.wait_for("/api/v2/torrents/stop");
+
+        let selected = cx.update(|cx| view.1.read(cx).table.read(cx).selected_row());
+        assert_eq!(selected, None);
+    }
+}
