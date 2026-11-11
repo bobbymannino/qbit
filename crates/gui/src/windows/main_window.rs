@@ -27,7 +27,7 @@ use crate::{
     session::login,
     speed_limits::SpeedLimits,
     torrent_table::{Filter, TorrentTable},
-    windows::{LoginWindow, OpenableWindow},
+    windows::{LoginWindow, OpenableWindow, client_title_bar},
 };
 
 /// How often the torrent list is refreshed.
@@ -459,12 +459,11 @@ impl Render for MainWindow {
             Status::Failed(message) => Some(message.clone()),
         };
 
-        v_flex()
-            .size_full()
+        let content = v_flex()
+            .flex_1()
+            .min_h_0()
             .p_4()
             .gap_4()
-            .bg(theme.background)
-            .text_color(theme.foreground)
             .child(
                 h_flex()
                     .justify_between()
@@ -501,6 +500,13 @@ impl Render for MainWindow {
                     )
                     .children(details),
             )
-            .child(self.render_status_bar(cx))
+            .child(self.render_status_bar(cx));
+
+        v_flex()
+            .size_full()
+            .bg(theme.background)
+            .text_color(theme.foreground)
+            .children(client_title_bar(window, APP_TITLE))
+            .child(content)
     }
 }

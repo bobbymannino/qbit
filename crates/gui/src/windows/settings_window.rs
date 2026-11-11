@@ -13,7 +13,7 @@ use gpui_kit::{
 
 use crate::{
     consts::{APP_ID, APP_TITLE, APP_VERSION, RELEASES_URL, REPO_URL},
-    windows::OpenableWindow,
+    windows::{OpenableWindow, client_title_bar},
 };
 
 /// The app's settings.
@@ -85,7 +85,7 @@ impl OpenableWindow for SettingsWindow {
 }
 
 impl Render for SettingsWindow {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
 
         let link = |id: &'static str, label: &'static str, url: &'static str| {
@@ -95,12 +95,11 @@ impl Render for SettingsWindow {
                 .on_click(move |_, _, cx| cx.open_url(url))
         };
 
-        v_flex()
-            .size_full()
+        let content = v_flex()
+            .flex_1()
+            .min_h_0()
             .p_8()
             .justify_between()
-            .bg(theme.background)
-            .text_color(theme.foreground)
             .child(
                 v_flex()
                     .gap_1()
@@ -126,6 +125,13 @@ impl Render for SettingsWindow {
                         "Changelog",
                         RELEASES_URL,
                     ))),
-            )
+            );
+
+        v_flex()
+            .size_full()
+            .bg(theme.background)
+            .text_color(theme.foreground)
+            .children(client_title_bar(window, format!("{APP_TITLE} — Settings")))
+            .child(content)
     }
 }

@@ -17,7 +17,7 @@ use crate::{
     credentials::Credentials,
     runtime::Tokio,
     session::{login, normalize_host},
-    windows::{MainWindow, OpenableWindow},
+    windows::{MainWindow, OpenableWindow, client_title_bar},
 };
 
 /// Where the login attempt is at.
@@ -212,7 +212,7 @@ impl OpenableWindow for LoginWindow {
 }
 
 impl Render for LoginWindow {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let logging_in = matches!(self.status, Status::LoggingIn);
 
@@ -223,13 +223,12 @@ impl Render for LoginWindow {
                 .child(input)
         };
 
-        v_flex()
-            .size_full()
+        let content = v_flex()
+            .flex_1()
+            .min_h_0()
             .p_8()
             .gap_4()
             .justify_center()
-            .bg(theme.background)
-            .text_color(theme.foreground)
             .child(
                 v_flex()
                     .gap_1()
@@ -258,6 +257,13 @@ impl Render for LoginWindow {
                     .loading(logging_in)
                     .disabled(logging_in)
                     .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
-            )
+            );
+
+        v_flex()
+            .size_full()
+            .bg(theme.background)
+            .text_color(theme.foreground)
+            .children(client_title_bar(window, format!("{APP_TITLE} — Log in")))
+            .child(content)
     }
 }
