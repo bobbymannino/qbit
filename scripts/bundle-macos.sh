@@ -5,7 +5,8 @@
 #
 # Builds for the machine it runs on (Apple Silicon or Intel); set QBIT_TARGET to
 # aarch64-apple-darwin or x86_64-apple-darwin to override (either can be built from
-# either kind of Mac). Writes dist/qBit.app and dist/qBit-<version>-macos-<arch>.dmg.
+# either kind of Mac). Writes dist/qBit.app, dist/qBit-<version>-macos-<arch>.dmg, and
+# dist/qBit-<version>-macos-<arch>.app.tar.gz (the bare app, for in-app updates).
 # The version defaults to the one in Cargo.toml.
 #
 # The app is ad-hoc signed, so macOS will warn that it's from an unidentified developer.
@@ -45,7 +46,7 @@ target_dir="$(cargo metadata --format-version 1 --no-deps \
     | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
 
 # Only clear this script's own output, so other platforms' builds in dist/ survive.
-rm -rf "$app" "$artifact.dmg"
+rm -rf "$app" "$artifact.dmg" "$artifact.app.tar.gz"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 cp "$target_dir/$target/release/$bin_name" "$app/Contents/MacOS/$bin_name"
@@ -74,6 +75,10 @@ else
 fi
 rm -rf "$staging"
 
+# The bare app as a tarball, which keeps the binary executable and the signature intact.
+# COPYFILE_DISABLE stops macOS tar adding AppleDouble (._*) files, which would break it.
+COPYFILE_DISABLE=1 tar -czf "$artifact.app.tar.gz" -C "$dist" "$app_name.app"
+
 echo "Built:"
 lipo -archs "$app/Contents/MacOS/$bin_name"
-ls -lh "$artifact.dmg"
+ls -lh "$artifact.dmg" "$artifact.app.tar.gz"

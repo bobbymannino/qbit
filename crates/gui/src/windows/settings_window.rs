@@ -1,9 +1,10 @@
 use gpui_kit::{
-    AnyWindowHandle, App, Context, Global, Render, Size, Subscription, TitlebarOptions, Window, WindowBounds,
-    WindowOptions,
+    AnyWindowHandle, App, Context, Global, Render, SharedString, Size, Subscription, TitlebarOptions, Window,
+    WindowBounds, WindowOptions,
+    assets::IconName,
     base::{StyledExt as _, h_flex, v_flex},
     component::{
-        ActiveTheme as _,
+        ActiveTheme as _, Disableable as _, Sizable as _,
         button::{Button, ButtonVariants as _},
     },
     div,
@@ -13,13 +14,13 @@ use gpui_kit::{
 
 use crate::{
     consts::{APP_ID, APP_TITLE, APP_VERSION, RELEASES_URL, REPO_URL},
-    windows::{OpenableWindow, client_title_bar},
+    update::{Status, Updater},
+    windows::{CurrentSession, OpenableWindow, Session, client_title_bar},
 };
 
 /// The app's settings.
 pub struct SettingsWindow {
-    /// Forgets this window in [`OpenSettings`] once it's gone.
-    _on_release: Subscription,
+    _subscriptions: [Subscription; 3],
 }
 
 /// The open settings window, if any, so there's only ever one.
@@ -62,9 +63,16 @@ impl SettingsWindow {
         });
     }
 
-    fn new(cx: &Context<Self>) -> Self {
+    fn new(cx: &mut Context<Self>) -> Self {
         Self {
-            _on_release: cx.on_release(|_, cx| cx.set_global(OpenSettings(None))),
+            _subscriptions: [
+                // Forget this window in `OpenSettings` once it's gone.
+                cx.on_release(|_, cx| cx.set_global(OpenSettings(None))),
+                // Redraw when logging in or out, so the account section follows.
+                cx.observe_global::<CurrentSession>(|_, cx| cx.notify()),
+                // Redraw as an update check or install goes on.
+                cx.observe_global::<Updater>(|_, cx| cx.notify()),
+            ],
         }
     }
 }
@@ -77,10 +85,118 @@ impl OpenableWindow for SettingsWindow {
                 title: Some(format!("{APP_TITLE} — Settings").into()),
                 ..Default::default()
             }),
-            window_bounds: Some(WindowBounds::centered(Size::new(px(480.0), px(360.0)), cx)),
+            window_bounds: Some(WindowBounds::centered(Size::new(px(480.0), px(420.0)), cx)),
             is_resizable: false,
             ..Default::default()
         }
+    }
+}
+
+impl SettingsWindow {
+    /// Who's logged in, with a button to log out; `None` while nobody is.
+    fn render_account(cx: &App) -> Option<impl IntoElement> {
+        let session = Session::current(cx)?;
+        let theme = cx.theme();
+        let who = format!("{} on {}", session.credentials.username, session.credentials.host);
+
+        Some(
+            h_flex()
+                .justify_between()
+                .gap_4()
+                .child(
+                    v_flex()
+                        .min_w_0()
+                        .gap_1()
+                        .child(div().text_sm().font_medium().child("Account"))
+                        .child(div().text_sm().text_color(theme.muted_foreground).truncate().child(who)),
+                )
+                .child(
+                    Button::new("log-out")
+                        .danger()
+                        .label("Log out")
+                        .icon(IconName::LogOut)
+                        .small()
+                        .on_click(|_, _, cx| Session::log_out(cx)),
+                ),
+        )
+    }
+}
+
+impl SettingsWindow {
+    /// Checking for a newer release, and installing it.
+    fn render_updates(cx: &App) -> impl IntoElement {
+        let theme = cx.theme();
+        let status = Updater::status(cx);
+
+        let message: SharedString = match &status {
+            Status::Idle => "Check GitHub for a newer version.".into(),
+            Status::Checking => "Checking for updates…".into(),
+            Status::UpToDate => format!("You're on the latest version, v{APP_VERSION}.").into(),
+            Status::Available(release) => format!("v{} is available.", release.version).into(),
+            Status::Installing(version) => format!("Downloading and installing v{version}…").into(),
+            Status::Failed(message) => message.clone(),
+        };
+
+        let check = |label: &'static str| {
+            Button::new("check-for-updates")
+                .label(label)
+                .small()
+                .on_click(|_, _, cx| Updater::check(cx))
+        };
+        let button = match &status {
+            Status::Idle => check("Check for updates"),
+            Status::UpToDate | Status::Failed(_) => check("Check again"),
+            Status::Checking => check("Checking…").loading(true).disabled(true),
+            Status::Available(_) => Button::new("install-update")
+                .primary()
+                .label("Install and restart")
+                .small()
+                .on_click(|_, _, cx| Updater::install(cx)),
+            Status::Installing(_) => Button::new("install-update")
+                .primary()
+                .label("Installing…")
+                .small()
+                .loading(true)
+                .disabled(true),
+        };
+
+        let whats_new = match &status {
+            Status::Available(release) => {
+                let url = release.url.clone();
+                Some(
+                    Button::new("whats-new")
+                        .link()
+                        .label("What's new")
+                        .small()
+                        .on_click(move |_, _, cx| cx.open_url(&url)),
+                )
+            }
+            _ => None,
+        };
+
+        h_flex()
+            .justify_between()
+            .gap_4()
+            .child(
+                v_flex()
+                    .flex_1()
+                    .min_w_0()
+                    .gap_1()
+                    .child(div().text_sm().font_medium().child("Updates"))
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .text_sm()
+                            .text_color(if matches!(status, Status::Failed(_)) {
+                                theme.danger
+                            } else {
+                                theme.muted_foreground
+                            })
+                            .child(message)
+                            .children(whats_new),
+                    ),
+            )
+            .child(button)
     }
 }
 
@@ -102,14 +218,10 @@ impl Render for SettingsWindow {
             .justify_between()
             .child(
                 v_flex()
-                    .gap_1()
+                    .gap_6()
                     .child(div().child("Settings").font_bold().text_2xl())
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .child("Nothing to configure yet."),
-                    ),
+                    .child(Self::render_updates(cx))
+                    .children(Self::render_account(cx)),
             )
             .child(
                 h_flex()

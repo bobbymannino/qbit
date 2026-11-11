@@ -5,13 +5,24 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
-regex.workspace = true
+flate2.workspace = true
 gpui-kit.workspace = true
 keyring.workspace = true
 qbittorrent.workspace = true
+regex.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
+tar.workspace = true
 tokio.workspace = true
+
+# macOS swaps the whole app bundle instead.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+self-replace.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+zip.workspace = true
 
 [lints]
 workspace = true

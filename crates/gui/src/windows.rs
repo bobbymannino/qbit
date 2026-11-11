@@ -9,7 +9,7 @@ use gpui_kit::{
     prelude::*,
 };
 pub use login_window::LoginWindow;
-pub use main_window::MainWindow;
+pub use main_window::{CurrentSession, MainWindow, Session};
 pub use settings_window::SettingsWindow;
 
 /// Defines a window that can be opened.

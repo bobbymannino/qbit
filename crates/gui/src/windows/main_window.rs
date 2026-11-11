@@ -1,13 +1,13 @@
 use std::time::Duration;
 
 use gpui_kit::{
-    AnyElement, AnyWindowHandle, App, AppContext as _, AsyncApp, Context, Entity, Render, Result, SharedString, Size,
-    Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions,
+    AnyElement, AnyWindowHandle, App, AppContext as _, AsyncApp, Context, Entity, Global, Render, Result, SharedString,
+    Size, Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds, WindowOptions,
     assets::IconName,
     base::{StyledExt, h_flex, v_flex},
     component::{
         ActiveTheme as _, Disableable as _, Icon, Sizable as _,
-        button::{Button, ButtonVariants as _, Toggle, ToggleGroup},
+        button::{Button, Toggle, ToggleGroup},
         input::{Input, InputEvent, InputState},
         table::{DataTable, TableEvent, TableState},
         tooltip::Tooltip,
@@ -41,10 +41,54 @@ enum Status {
     Failed(SharedString),
 }
 
+/// Who's logged in, and the main window showing their torrents, while there is one.
+pub struct Session {
+    pub credentials: Credentials,
+    window: AnyWindowHandle,
+}
+
+/// The logged-in session, if any.
+#[derive(Default)]
+pub struct CurrentSession(Option<Session>);
+
+impl Global for CurrentSession {}
+
+impl Session {
+    /// The logged-in session, if there is one.
+    pub fn current(cx: &App) -> Option<&Self> {
+        cx.try_global::<CurrentSession>().and_then(|current| current.0.as_ref())
+    }
+
+    /// Forget the saved login, close the main window and go back to the login window,
+    /// keeping the host and username filled in.
+    pub fn log_out(cx: &mut App) {
+        let Some(session) = Self::current(cx) else { return };
+        let window = session.window;
+        let prefill = Credentials {
+            password: String::new(),
+            ..session.credentials.clone()
+        };
+
+        if let Err(err) = Credentials::clear() {
+            eprintln!("{err}");
+        }
+        // Open the login window before closing the main one, so the app doesn't quit
+        // for having no windows left.
+        if let Err(err) = LoginWindow::open(cx, Some(prefill), false, None) {
+            eprintln!("Couldn't open the login window: {err}");
+            return;
+        }
+        // Deferred, because this can run while another window (e.g. settings) is being
+        // updated, and the main window can't be updated from inside that.
+        cx.defer(move |cx| {
+            if let Err(err) = window.update(cx, |_, window, _| window.remove_window()) {
+                eprintln!("Failed to close the main window: {err}");
+            }
+        });
+    }
+}
+
 pub struct MainWindow {
-    /// Used to log in again when the session expires, and to prefill the login form
-    /// after logging out.
-    credentials: Credentials,
     status: Status,
     /// Global speeds for the status bar; `None` until first fetched.
     transfer: Option<TransferInfo>,
@@ -127,9 +171,20 @@ impl MainWindow {
             .detach();
         }));
 
+        // Track the session while this window is open, for the settings window's log out button.
+        let handle = window.window_handle();
+        subscriptions.push(cx.on_release(move |_, cx| {
+            if Session::current(cx).is_some_and(|session| session.window == handle) {
+                cx.set_global(CurrentSession(None));
+            }
+        }));
+        cx.set_global(CurrentSession(Some(Session {
+            credentials: credentials.clone(),
+            window: handle,
+        })));
+
         Self {
-            _refresh: Self::start_refreshing(cx, credentials.clone(), client),
-            credentials,
+            _refresh: Self::start_refreshing(cx, credentials, client),
             status: Status::LoadingTorrents,
             transfer: None,
             table,
@@ -380,30 +435,6 @@ impl MainWindow {
             )
     }
 
-    /// Forget the saved login and go back to the login window, keeping the host and
-    /// username filled in.
-    fn render_log_out(&self) -> impl IntoElement {
-        let prefill = Credentials {
-            password: String::new(),
-            ..self.credentials.clone()
-        };
-
-        Button::new("log-out")
-            .label("Log out")
-            .icon(IconName::LogOut)
-            .small()
-            .ghost()
-            .on_click(move |_, window, cx| {
-                if let Err(err) = Credentials::clear() {
-                    eprintln!("{err}");
-                }
-                match LoginWindow::open(cx, Some(prefill.clone()), false, None) {
-                    Ok(_) => window.remove_window(),
-                    Err(err) => eprintln!("Couldn't open the login window: {err}"),
-                }
-            })
-    }
-
     /// Hand the logged-in client to the table so its play/pause buttons work.
     fn give_table_client(this: &WeakEntity<Self>, cx: &mut AsyncApp, client: Client, runtime: tokio::runtime::Handle) {
         this.update(cx, |this, cx| {
@@ -464,12 +495,7 @@ impl Render for MainWindow {
             .min_h_0()
             .p_4()
             .gap_4()
-            .child(
-                h_flex()
-                    .justify_between()
-                    .child(div().child(APP_TITLE).font_bold().text_3xl())
-                    .child(self.render_log_out()),
-            )
+            .child(div().child(APP_TITLE).font_bold().text_3xl())
             .children(status.map(|status| div().text_color(theme.muted_foreground).child(status)))
             .child(
                 h_flex().justify_between().gap_2().child(self.render_filters(cx)).child(

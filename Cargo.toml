@@ -2,18 +2,24 @@
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 rust-version = "1.95"
 edition = "2024"
 
 [workspace.dependencies]
+flate2 = "1.1"
 gpui-kit = "0.9.1"
 keyring = "4.2"
 regex = "1.13"
 reqwest = { version = "0.13", features = ["json", "form", "cookies"] }
 serde = { version = "1", features = ["derive"] }
+self-replace = "1.5"
 serde_json = "1"
+sha2 = "0.11"
+tar = "0.4"
 tokio = { version = "1", features = ["rt-multi-thread"] }
+# Only for unpacking Windows updates, which are deflate-compressed.
+zip = { version = "9.5", default-features = false, features = ["deflate"] }
 gui = { path = "crates/gui" }
 qbittorrent = { path = "crates/qbittorrent" }
 
@@ -50,7 +56,7 @@ embed-resource = "3.0"
 workspace = true
 
 [profile.release]
-lto = "fat"
+lto = "thin"
 codegen-units = 1
 panic = "abort"
 strip = true
