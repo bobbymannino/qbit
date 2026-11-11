@@ -11,7 +11,6 @@ dirs = "7"
 flate2 = "1.1"
 gpui-kit = "0.9.1"
 keyring = "4.2"
-regex = "1.13"
 reqwest = { version = "0.13", features = ["json", "form", "cookies"] }
 serde = { version = "1", features = ["derive"] }
 self-replace = "1.5"

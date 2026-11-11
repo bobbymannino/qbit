@@ -2805,7 +2805,6 @@ dependencies = [
  "gpui-kit",
  "keyring",
  "qbittorrent",
- "regex",
  "reqwest",
  "self-replace",
  "serde",

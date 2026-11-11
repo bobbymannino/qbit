@@ -1,4 +1,4 @@
-use std::{cell::Cell, cmp::Ordering, collections::BTreeMap, rc::Rc, sync::LazyLock};
+use std::{cell::Cell, cmp::Ordering, collections::BTreeMap, rc::Rc};
 
 use gpui_kit::{
     AnyElement, App, ClipboardItem, Context, Div, IntoElement, MouseButton, Pixels, SharedString, Stateful, Window,
@@ -18,7 +18,6 @@ use gpui_kit::{
     px,
 };
 use qbittorrent::{Client, Torrent};
-use regex::Regex;
 use tokio::runtime::Handle;
 
 use crate::{
@@ -310,8 +309,6 @@ impl DeleteRequest {
 }
 
 impl TorrentTable {
-    const SEARCHIFY_PATTERN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\W+").unwrap());
-
     pub const fn new() -> Self {
         Self {
             torrents: Vec::new(),
@@ -517,9 +514,14 @@ impl TorrentTable {
             .count()
     }
 
-    /// Turn a string into a searchable value by removing all non a-z/0-9 characters.
-    fn searchify(value: &String) -> String {
-        Self::SEARCHIFY_PATTERN.replace_all(value, "").to_lowercase()
+    /// Turn a string into a searchable value: lowercase, keeping only letters, digits
+    /// and underscores, so `the.show s01` matches `The Show S01`.
+    fn searchify(value: &str) -> String {
+        value
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '_')
+            .flat_map(char::to_lowercase)
+            .collect()
     }
 
     fn matches_query(&self, torrent: &Torrent) -> bool {
