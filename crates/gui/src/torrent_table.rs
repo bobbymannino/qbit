@@ -21,7 +21,10 @@ use qbittorrent::{Client, Torrent};
 use regex::Regex;
 use tokio::runtime::Handle;
 
-use crate::format::{format_bytes, format_eta, format_speed};
+use crate::{
+    format::{format_bytes, format_eta, format_speed},
+    prefs::Prefs,
+};
 
 /// Which torrents the table shows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -534,6 +537,8 @@ impl TableDelegate for TorrentTable {
         if col_ix < self.columns.len() && to_ix < self.columns.len() {
             let column = self.columns.remove(col_ix);
             self.columns.insert(to_ix, column);
+            let order = self.column_order();
+            Prefs::update(|prefs| prefs.column_order = order);
         }
     }
 

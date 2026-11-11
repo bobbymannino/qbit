@@ -24,6 +24,7 @@ use crate::{
     details_panel::details_panel,
     format::format_rate,
     hotkeys::ToggleSettings,
+    prefs::Prefs,
     runtime::Tokio,
     session::login,
     speed_limits::SpeedLimits,
@@ -116,6 +117,7 @@ impl MainWindow {
 
     fn new(window: &mut Window, cx: &mut Context<Self>, credentials: Credentials, client: Client) -> Self {
         let mut rows = TorrentTable::new();
+        rows.set_column_order(Prefs::load().column_order.iter().map(String::as_str));
         if let Some(runtime) = Tokio::handle(cx) {
             rows.set_client(client.clone(), runtime);
         }
