@@ -59,7 +59,12 @@ struct Asset {
 
 /// The update status, shared by every window that shows it.
 #[derive(Default)]
-pub struct Updater(Status);
+pub struct Updater {
+    status: Status,
+    /// Whether to ask the user about an update the startup check finds; cleared once
+    /// they've been asked, or the check found nothing.
+    prompt_pending: bool,
+}
 
 impl Global for Updater {}
 
@@ -67,12 +72,46 @@ impl Updater {
     /// Where checking for and installing an update is at.
     pub fn status(cx: &App) -> Status {
         cx.try_global::<Self>()
-            .map(|updater| updater.0.clone())
+            .map(|updater| updater.status.clone())
             .unwrap_or_default()
     }
 
     fn set(cx: &mut App, status: Status) {
-        cx.set_global(Self(status));
+        // Only an update found by the startup check is prompted for.
+        let prompt_pending = matches!(status, Status::Checking | Status::Available(_))
+            && cx.try_global::<Self>().is_some_and(|updater| updater.prompt_pending);
+        cx.set_global(Self { status, prompt_pending });
+    }
+
+    /// Check for an update when the app starts, so the main window can offer to install it.
+    ///
+    /// Development builds can't install updates, so they don't check.
+    pub fn check_on_startup(cx: &mut App) {
+        if cfg!(debug_assertions) {
+            return;
+        }
+        cx.set_global(Self {
+            status: Self::status(cx),
+            prompt_pending: true,
+        });
+        Self::check(cx);
+    }
+
+    /// The update the startup check found, if the user hasn't been asked about it yet.
+    ///
+    /// Taking it means they won't be asked again.
+    pub fn take_startup_prompt(cx: &mut App) -> Option<Release> {
+        let updater = cx.try_global::<Self>()?;
+        let Status::Available(release) = &updater.status else { return None };
+        if !updater.prompt_pending {
+            return None;
+        }
+        let release = release.clone();
+        cx.set_global(Self {
+            status: Status::Available(release.clone()),
+            prompt_pending: false,
+        });
+        Some(release)
     }
 
     /// Ask GitHub for the latest release, unless a check or install is already running.
