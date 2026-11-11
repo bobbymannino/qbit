@@ -13,6 +13,8 @@ mod runtime;
 mod session;
 mod speed_limits;
 mod startup;
+#[cfg(test)]
+mod test_support;
 mod theme;
 mod torrent_table;
 mod update;
