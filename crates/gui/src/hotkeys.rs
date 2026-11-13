@@ -1,8 +1,8 @@
 use gpui_kit::{App, KeyBinding, Menu, MenuItem, SystemMenuType};
 
-pub use actions::{CloseWindow, Quit, ToggleSettings};
+pub use actions::{CheckForUpdates, CloseWindow, Quit, ToggleSettings};
 
-use crate::windows::SettingsWindow;
+use crate::{update::Updater, windows::SettingsWindow};
 
 // `actions!` derives `PartialEq` without `Eq`, which the workspace lints deny.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -16,6 +16,8 @@ mod actions {
             CloseWindow,
             /// Open the settings window, or close it if it's already open.
             ToggleSettings,
+            /// Show the settings window, where the result appears, and check for a newer release.
+            CheckForUpdates,
         ]
     );
 }
@@ -25,6 +27,10 @@ pub fn init(cx: &mut App) {
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(close_window);
     cx.on_action(|_: &ToggleSettings, cx| SettingsWindow::toggle(cx));
+    cx.on_action(|_: &CheckForUpdates, cx| {
+        SettingsWindow::show(cx);
+        Updater::check(cx);
+    });
 
     cx.bind_keys([
         KeyBinding::new(if cfg!(target_os = "macos") { "cmd-q" } else { "ctrl-q" }, Quit, None),
@@ -43,6 +49,7 @@ pub fn init(cx: &mut App) {
     // The first menu is the app menu on macOS. Each item shows its key binding.
     cx.set_menus([
         Menu::new("qBit").items([
+            MenuItem::action("Check for Updates…", CheckForUpdates),
             MenuItem::action("Settings…", ToggleSettings),
             MenuItem::separator(),
             MenuItem::os_submenu("Services", SystemMenuType::Services),

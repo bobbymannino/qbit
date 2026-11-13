@@ -38,6 +38,18 @@ impl SettingsWindow {
     /// Open the settings window; if it's already open, focus it, or close it if it's
     /// already focused. There's only ever one.
     pub fn toggle(cx: &mut App) {
+        let close = Self::handle(cx).is_some_and(|handle| cx.active_window() == Some(handle));
+        Self::open_or(cx, close);
+    }
+
+    /// Open the settings window, or focus it if it's already open.
+    pub fn show(cx: &mut App) {
+        Self::open_or(cx, false);
+    }
+
+    /// Open the settings window; if it's already open, close it when `close` is set,
+    /// otherwise focus it.
+    fn open_or(cx: &mut App, close: bool) {
         let Some(handle) = Self::handle(cx) else {
             match Self::open_window(cx, |_, cx| Self::new(cx)) {
                 Ok(handle) => cx.set_global(OpenSettings(Some(handle))),
@@ -48,7 +60,6 @@ impl SettingsWindow {
 
         // Deferred, because a hotkey pressed in the settings window runs while that window
         // is being updated, and it can't be updated again from inside that.
-        let close = cx.active_window() == Some(handle);
         cx.defer(move |cx| {
             let result = handle.update(cx, |_, window, _| {
                 if close {
