@@ -413,6 +413,15 @@ impl TorrentTable {
             .into_any_element()
     }
 
+    /// Start `torrent` if it's stopped, otherwise stop it, in the background.
+    ///
+    /// The new state shows up on the next refresh.
+    pub fn toggle(&self, torrent: &Torrent) {
+        if let Some(actions) = &self.actions {
+            actions.send(torrent.state.is_stopped(), Target::One(torrent.hash.clone()));
+        }
+    }
+
     /// A request to delete `torrent`; `None` until logged in.
     pub fn delete_request(&self, torrent: &Torrent) -> Option<DeleteRequest> {
         self.actions.clone().map(|actions| DeleteRequest {

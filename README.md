@@ -69,11 +69,23 @@ checks it against its published checksum, and swaps it in for you.
 
 ## Keyboard shortcuts
 
-| Action        | macOS | Windows / Linux |
-| ------------- | ----- | --------------- |
-| Open settings | `⌘ ,` | `Ctrl ,`        |
-| Close window  | `⌘ W` | `Ctrl W`        |
-| Quit          | `⌘ Q` | `Ctrl Q`        |
+| Action                                   | macOS       | Windows / Linux |
+| ---------------------------------------- | ----------- | --------------- |
+| Search torrents                          | `⌘ F`       | `Ctrl F`        |
+| Back to the torrent list from search     | `Esc`       | `Esc`           |
+| Show all / downloading / seeding / stopped | `⌘ 1` – `⌘ 4` | `Ctrl 1` – `Ctrl 4` |
+| Move through torrents                    | `↑` `↓`     | `↑` `↓`         |
+| Close the details panel                  | `Esc`       | `Esc`           |
+| Start or stop the selected torrent       | `Space`     | `Space`         |
+| Delete the selected torrent              | `⌘ ⌫`       | `Delete`        |
+| Start all torrents                       | `⌥ ⌘ R`     | `Ctrl Alt R`    |
+| Stop all torrents                        | `⌥ ⌘ .`     | `Ctrl Alt .`    |
+| Open settings                            | `⌘ ,`       | `Ctrl ,`        |
+| Close window                             | `⌘ W`       | `Ctrl W`        |
+| Quit                                     | `⌘ Q`       | `Ctrl Q`        |
+
+Starting, stopping and deleting the selected torrent work while the torrent list
+has focus, so typing a space in the search box doesn't stop anything.
 
 ## Building from source
 

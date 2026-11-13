@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use gpui_kit::{
     Anchor, AnyElement, AnyWindowHandle, App, AppContext as _, AsyncApp, Context, Entity, Focusable as _, Global,
-    Render, Result, SharedString, Size, Subscription, Task, TitlebarOptions, WeakEntity, Window, WindowBounds,
-    WindowOptions,
+    KeyDownEvent, Render, Result, SharedString, Size, Subscription, Task, TitlebarOptions, WeakEntity, Window,
+    WindowBounds, WindowOptions,
     assets::IconName,
     base::{StyledExt, h_flex, v_flex},
     component::{
@@ -24,7 +24,10 @@ use crate::{
     credentials::Credentials,
     details_panel::details_panel,
     format::format_rate,
-    hotkeys::ToggleSettings,
+    hotkeys::{
+        DeleteTorrent, FocusSearch, MAIN_WINDOW, ShowAll, ShowDownloading, ShowSeeding, ShowStopped, StartAll, StopAll,
+        ToggleSettings, ToggleTorrent,
+    },
     prefs::Prefs,
     runtime::Tokio,
     session::login,
@@ -133,6 +136,8 @@ impl MainWindow {
             rows.set_client(client.clone(), runtime);
         }
         let table = cx.new(|cx| TableState::new(rows, window, cx));
+        // Start in the table, so the arrow keys and torrent hotkeys work straight away.
+        table.read(cx).focus_handle(cx).focus(window, cx);
 
         let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search torrents"));
         // Redraw when the selection changes, so the details panel follows it.
@@ -433,6 +438,48 @@ impl MainWindow {
             })
     }
 
+    /// Show only the torrents matching `filter`.
+    fn show_filter(&self, filter: Filter, cx: &mut Context<Self>) {
+        self.table.update(cx, |table, cx| {
+            Self::update_rows(table, cx, |rows| rows.set_filter(filter));
+        });
+    }
+
+    /// The torrent whose details are open, if any.
+    fn selected_torrent(&self, cx: &App) -> Option<Torrent> {
+        let table = self.table.read(cx);
+        table.delegate().torrent_at(table.selected_row()?).cloned()
+    }
+
+    fn focus_search(&mut self, _: &FocusSearch, window: &mut Window, cx: &mut Context<Self>) {
+        self.search.update(cx, |search, cx| {
+            search.focus(window, cx);
+            search.select_all(window, cx);
+        });
+    }
+
+    fn toggle_selected(&mut self, _: &ToggleTorrent, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(torrent) = self.selected_torrent(cx) {
+            self.table.read(cx).delegate().toggle(&torrent);
+        }
+    }
+
+    fn delete_selected(&mut self, _: &DeleteTorrent, window: &mut Window, cx: &mut Context<Self>) {
+        let delete = self
+            .selected_torrent(cx)
+            .and_then(|torrent| self.table.read(cx).delegate().delete_request(&torrent));
+        if let Some(delete) = delete {
+            delete.confirm(window, cx);
+        }
+    }
+
+    /// Leave the search box for the table when escape isn't otherwise used there.
+    fn search_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if event.keystroke.key == "escape" {
+            self.table.read(cx).focus_handle(cx).focus(window, cx);
+        }
+    }
+
     /// The details panel for the selected torrent, if any.
     fn render_details(&mut self, window: &mut Window, cx: &mut App) -> Option<AnyElement> {
         let table = self.table.read(cx);
@@ -642,11 +689,13 @@ impl Render for MainWindow {
                     h_flex()
                         .gap_2()
                         .child(
-                            Input::new(&self.search)
-                                .prefix(Icon::new(IconName::Search).small())
-                                .cleanable(true)
-                                .small()
-                                .w(px(220.0)),
+                            div().on_key_down(cx.listener(Self::search_key_down)).child(
+                                Input::new(&self.search)
+                                    .prefix(Icon::new(IconName::Search).small())
+                                    .cleanable(true)
+                                    .small()
+                                    .w(px(220.0)),
+                            ),
                         )
                         .child(self.render_bulk_actions(cx)),
                 ),
@@ -669,10 +718,176 @@ impl Render for MainWindow {
             .child(status_bar);
 
         v_flex()
+            .key_context(MAIN_WINDOW)
+            .on_action(cx.listener(Self::focus_search))
+            .on_action(cx.listener(|this, _: &ShowAll, _, cx| this.show_filter(Filter::All, cx)))
+            .on_action(cx.listener(|this, _: &ShowDownloading, _, cx| this.show_filter(Filter::Downloading, cx)))
+            .on_action(cx.listener(|this, _: &ShowSeeding, _, cx| this.show_filter(Filter::Seeding, cx)))
+            .on_action(cx.listener(|this, _: &ShowStopped, _, cx| this.show_filter(Filter::Stopped, cx)))
+            .on_action(cx.listener(Self::toggle_selected))
+            .on_action(cx.listener(Self::delete_selected))
+            .on_action(cx.listener(|this, _: &StartAll, _, cx| this.table.read(cx).delegate().send_all(true)))
+            .on_action(cx.listener(|this, _: &StopAll, _, cx| this.table.read(cx).delegate().send_all(false)))
             .size_full()
             .bg(theme.background)
             .text_color(theme.foreground)
             .children(client_title_bar(window, APP_TITLE))
             .child(content)
+    }
+}
+
+#[cfg(test)]
+mod ui_tests {
+    use std::time::Duration;
+
+    use gpui_kit::{
+        AnyWindowHandle, AppContext as _, Entity, Focusable as _, TestAppContext, component::WindowExt as _,
+    };
+
+    use super::MainWindow;
+    use crate::{
+        credentials::Credentials,
+        hotkeys,
+        test_support::{MockQbittorrent, open_window, torrent},
+        torrent_table::Filter,
+    };
+
+    type View = (AnyWindowHandle, Entity<MainWindow>);
+
+    /// `key` with the platform's main modifier, as the hotkeys are bound.
+    fn primary(key: &str) -> String {
+        let modifier = if cfg!(target_os = "macos") { "cmd" } else { "ctrl" };
+        format!("{modifier}-{key}")
+    }
+
+    /// The main window, logged in to `qbittorrent`, showing a downloading and a seeding
+    /// torrent with the downloading one selected.
+    ///
+    /// Without the app's Tokio runtime the window doesn't refresh, whose requests the test
+    /// scheduler would see as nondeterministic; the table sends on the mock's runtime instead.
+    fn open(cx: &mut TestAppContext, qbittorrent: &MockQbittorrent) -> View {
+        let credentials = Credentials {
+            host: qbittorrent.server.uri(),
+            username: "admin".into(),
+            password: "adminadmin".into(),
+        };
+        let client = qbittorrent.client.clone();
+        let view = open_window(cx, |window, cx| {
+            hotkeys::init(cx);
+            cx.new(|cx| MainWindow::new(window, cx, credentials, client))
+        });
+        cx.update(|cx| {
+            let table = view.1.read(cx).table.clone();
+            table.update(cx, |table, cx| {
+                let rows = table.delegate_mut();
+                rows.set_client(qbittorrent.client.clone(), qbittorrent.runtime.handle().clone());
+                rows.set_torrents(vec![
+                    torrent("a", "Ubuntu", "downloading"),
+                    torrent("b", "Debian", "uploading"),
+                ]);
+                table.set_selected_row(0, cx);
+            });
+        });
+        cx.run_until_parked();
+        view
+    }
+
+    fn search_focused(cx: &mut TestAppContext, (handle, view): &View) -> bool {
+        cx.update_window(*handle, |_, window, cx| {
+            view.read(cx).search.read(cx).focus_handle(cx).is_focused(window)
+        })
+        .unwrap()
+    }
+
+    fn table_focused(cx: &mut TestAppContext, (handle, view): &View) -> bool {
+        cx.update_window(*handle, |_, window, cx| {
+            view.read(cx).table.read(cx).focus_handle(cx).is_focused(window)
+        })
+        .unwrap()
+    }
+
+    fn press(cx: &mut TestAppContext, (handle, _): &View, keystrokes: &str) {
+        cx.simulate_keystrokes(*handle, keystrokes);
+        cx.run_until_parked();
+    }
+
+    #[gpui_kit::test]
+    fn starts_in_the_table(cx: &mut TestAppContext) {
+        let qbittorrent = MockQbittorrent::start();
+        let view = open(cx, &qbittorrent);
+        assert!(table_focused(cx, &view));
+    }
+
+    #[gpui_kit::test]
+    fn focuses_the_search_box_and_leaves_it_with_escape(cx: &mut TestAppContext) {
+        let qbittorrent = MockQbittorrent::start();
+        let view = open(cx, &qbittorrent);
+
+        press(cx, &view, &primary("f"));
+        assert!(search_focused(cx, &view));
+
+        press(cx, &view, "escape");
+        assert!(table_focused(cx, &view));
+    }
+
+    #[gpui_kit::test]
+    fn switches_filters_by_number(cx: &mut TestAppContext) {
+        let qbittorrent = MockQbittorrent::start();
+        let view = open(cx, &qbittorrent);
+        let filter = |cx: &mut TestAppContext| cx.update(|cx| view.1.read(cx).table.read(cx).delegate().filter());
+
+        press(cx, &view, &primary("3"));
+        assert_eq!(filter(cx), Filter::Seeding);
+        press(cx, &view, &primary("4"));
+        assert_eq!(filter(cx), Filter::Stopped);
+        press(cx, &view, &primary("2"));
+        assert_eq!(filter(cx), Filter::Downloading);
+        press(cx, &view, &primary("1"));
+        assert_eq!(filter(cx), Filter::All);
+    }
+
+    #[gpui_kit::test]
+    fn space_stops_the_selected_torrent(cx: &mut TestAppContext) {
+        let qbittorrent = MockQbittorrent::start();
+        let view = open(cx, &qbittorrent);
+
+        press(cx, &view, "space");
+        let request = qbittorrent.wait_for("/api/v2/torrents/stop");
+        assert_eq!(String::from_utf8_lossy(&request.body), "hashes=a");
+    }
+
+    #[gpui_kit::test]
+    fn space_types_in_the_search_box(cx: &mut TestAppContext) {
+        let qbittorrent = MockQbittorrent::start();
+        let view = open(cx, &qbittorrent);
+
+        press(cx, &view, &primary("f"));
+        press(cx, &view, "space");
+        std::thread::sleep(Duration::from_millis(100));
+
+        let query = cx.update(|cx| view.1.read(cx).search.read(cx).value());
+        assert_eq!(query.as_ref(), " ");
+        let stopped = qbittorrent
+            .requests()
+            .iter()
+            .any(|request| request.url.path() == "/api/v2/torrents/stop");
+        assert!(!stopped);
+    }
+
+    #[gpui_kit::test]
+    fn asks_before_deleting_the_selected_torrent(cx: &mut TestAppContext) {
+        let qbittorrent = MockQbittorrent::start();
+        let view = open(cx, &qbittorrent);
+
+        let delete = if cfg!(target_os = "macos") {
+            "cmd-backspace"
+        } else {
+            "delete"
+        };
+        press(cx, &view, delete);
+        let asking = cx
+            .update_window(view.0, |_, window, cx| window.has_active_dialog(cx))
+            .unwrap();
+        assert!(asking);
     }
 }
