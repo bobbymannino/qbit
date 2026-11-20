@@ -480,6 +480,26 @@ impl TorrentTable {
         Some(request)
     }
 
+    /// Add torrents from magnet `links` in the background.
+    ///
+    /// They show up on the next refresh. Returns the request, which finishes with a
+    /// message for the user if it failed; `None` if not logged in.
+    pub fn add_links(&self, links: Vec<String>) -> Option<tokio::task::JoinHandle<Result<(), String>>> {
+        let actions = self.actions.as_ref()?;
+        let client = actions.client.clone();
+        let request = actions.runtime.spawn(async move {
+            let links: Vec<&str> = links.iter().map(String::as_str).collect();
+            client.add_urls(&links).await.map_err(|err| {
+                eprintln!("Failed to add torrents: {err}");
+                match err {
+                    qbittorrent::Error::NotAdded => "qBittorrent couldn't add that magnet link.".to_owned(),
+                    err => format!("Couldn't add the magnet link: {err}"),
+                }
+            })
+        });
+        Some(request)
+    }
+
     /// Whether start/stop requests can be sent yet (i.e. logged in).
     pub const fn can_send(&self) -> bool {
         self.actions.is_some()

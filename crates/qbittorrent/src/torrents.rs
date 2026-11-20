@@ -240,6 +240,38 @@ impl Client {
         self.stop(&["all"]).await
     }
 
+    /// Add torrents from `urls`: magnet links, or links to `.torrent` files that
+    /// qBittorrent downloads itself.
+    ///
+    /// # Errors
+    ///
+    /// - [`Error::NotLoggedIn`] if there is no valid session.
+    /// - [`Error::NotAdded`] if qBittorrent couldn't add any of them.
+    /// - [`Error::UnexpectedStatus`] for any other non-success response.
+    /// - [`Error::Http`] if the request fails.
+    pub async fn add_urls(&self, urls: &[&str]) -> Result<(), Error> {
+        let url = self.endpoint("api/v2/torrents/add")?;
+        let urls = urls.join("\n");
+
+        let res = self
+            .http
+            .post(url)
+            .header(header::REFERER, self.base.as_str())
+            .form(&[("urls", urls.as_str())])
+            .send()
+            .await?;
+
+        match res.status() {
+            StatusCode::FORBIDDEN => Err(Error::NotLoggedIn),
+            // qBittorrent 5 answers 409 when none of them could be added.
+            StatusCode::CONFLICT => Err(Error::NotAdded),
+            status if !status.is_success() => Err(Error::UnexpectedStatus(status)),
+            // qBittorrent 4 answers 200 either way, with `Fails.` when none were added.
+            _ if res.text().await?.trim() == "Fails." => Err(Error::NotAdded),
+            _ => Ok(()),
+        }
+    }
+
     /// Remove the torrents with the given hashes, also deleting their downloaded
     /// files from disk if `delete_files` is `true`.
     ///

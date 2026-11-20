@@ -15,6 +15,8 @@ pub enum Error {
     NotLoggedIn,
     /// qBittorrent answered with an unexpected status code.
     UnexpectedStatus(StatusCode),
+    /// qBittorrent couldn't add the torrent, e.g. because the link is invalid.
+    NotAdded,
     /// The request failed to send or the response could not be read.
     Http(reqwest::Error),
 }
@@ -27,6 +29,7 @@ impl fmt::Display for Error {
             Self::Banned => f.write_str("this IP is banned after too many failed logins"),
             Self::NotLoggedIn => f.write_str("not logged in"),
             Self::UnexpectedStatus(status) => write!(f, "unexpected response: {status}"),
+            Self::NotAdded => f.write_str("qBittorrent couldn't add the torrent"),
             Self::Http(err) => write!(f, "request failed: {err}"),
         }
     }

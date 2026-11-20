@@ -78,6 +78,7 @@ checks it against its published checksum, and swaps it in for you.
 | Close the details panel                  | `Esc`       | `Esc`           |
 | Start or stop the selected torrent       | `Space`     | `Space`         |
 | Delete the selected torrent              | `⌘ ⌫`       | `Delete`        |
+| Add a magnet link                        | `⇧ ⌘ O`     | `Ctrl Shift O`  |
 | Start all torrents                       | `⌥ ⌘ R`     | `Ctrl Alt R`    |
 | Stop all torrents                        | `⌥ ⌘ .`     | `Ctrl Alt .`    |
 | Open settings                            | `⌘ ,`       | `Ctrl ,`        |

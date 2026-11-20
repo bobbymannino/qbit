@@ -1,8 +1,8 @@
 use gpui_kit::{App, KeyBinding, Menu, MenuItem, SystemMenuType};
 
 pub use actions::{
-    CheckForUpdates, CloseWindow, DeleteTorrent, FocusSearch, Quit, ShowAll, ShowDownloading, ShowSeeding, ShowStopped,
-    StartAll, StopAll, ToggleSettings, ToggleTorrent,
+    AddMagnet, CheckForUpdates, CloseWindow, DeleteTorrent, FocusSearch, Quit, ShowAll, ShowDownloading, ShowSeeding,
+    ShowStopped, StartAll, StopAll, ToggleSettings, ToggleTorrent,
 };
 
 use crate::{update::Updater, windows::SettingsWindow};
@@ -42,6 +42,8 @@ mod actions {
             ToggleTorrent,
             /// Ask whether to delete the selected torrent.
             DeleteTorrent,
+            /// Ask for magnet links to add.
+            AddMagnet,
             /// Start every torrent.
             StartAll,
             /// Stop every torrent.
@@ -84,6 +86,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new(primary!("2"), ShowDownloading, main),
         KeyBinding::new(primary!("3"), ShowSeeding, main),
         KeyBinding::new(primary!("4"), ShowStopped, main),
+        KeyBinding::new(primary!("shift-o"), AddMagnet, main),
         KeyBinding::new(primary!("alt-r"), StartAll, main),
         KeyBinding::new(primary!("alt-."), StopAll, main),
         KeyBinding::new("space", ToggleTorrent, table),
@@ -108,7 +111,11 @@ pub fn init(cx: &mut App) {
             MenuItem::separator(),
             MenuItem::action("Quit qBit", Quit),
         ]),
-        Menu::new("File").items([MenuItem::action("Close Window", CloseWindow)]),
+        Menu::new("File").items([
+            MenuItem::action("Add Magnet Link…", AddMagnet),
+            MenuItem::separator(),
+            MenuItem::action("Close Window", CloseWindow),
+        ]),
         Menu::new("View").items([
             MenuItem::action("Search", FocusSearch),
             MenuItem::separator(),
