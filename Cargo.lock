@@ -3366,7 +3366,7 @@ dependencies = [
 
 [[package]]
 name = "gui"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "dirs 7.0.0",
  "flate2",
@@ -5828,7 +5828,7 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "qbit"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "embed-resource",
  "gui",
@@ -5836,7 +5836,7 @@ dependencies = [
 
 [[package]]
 name = "qbittorrent"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "reqwest",
  "serde",
