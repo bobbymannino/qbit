@@ -78,7 +78,8 @@ pub fn open(window: &mut Window, cx: &mut App, add: impl Fn(Vec<String>, &mut Ap
             .confirm()
             .title("Add magnet link")
             .child(
-                v_flex().w_full().gap_1().child(Input::new(&input)).children(
+                // The dialog body clips what's outside it, so leave room for the input's focus ring.
+                v_flex().w_full().p_1().gap_1().child(Input::new(&input)).children(
                     error
                         .borrow()
                         .clone()
