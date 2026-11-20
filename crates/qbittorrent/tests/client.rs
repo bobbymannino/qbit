@@ -150,6 +150,39 @@ async fn deletes_torrents_with_or_without_their_files() {
 }
 
 #[tokio::test]
+async fn adds_links_one_per_line() {
+    let (server, client) = setup().await;
+    Mock::given(method("POST"))
+        .and(path("/api/v2/torrents/add"))
+        .and(body_string("urls=magnet%3A%3Fxt%3Da%0Amagnet%3A%3Fxt%3Db"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("Ok."))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    client.add_urls(&["magnet:?xt=a", "magnet:?xt=b"]).await.unwrap();
+}
+
+#[tokio::test]
+async fn reports_links_qbittorrent_couldnt_add() {
+    // qBittorrent 4 says so in the body; qBittorrent 5 with a status.
+    for response in [
+        ResponseTemplate::new(200).set_body_string("Fails."),
+        ResponseTemplate::new(409),
+    ] {
+        let (server, client) = setup().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v2/torrents/add"))
+            .respond_with(response)
+            .mount(&server)
+            .await;
+
+        let result = client.add_urls(&["magnet:?xt=bad"]).await;
+        assert!(matches!(result, Err(Error::NotAdded)), "{result:?}");
+    }
+}
+
+#[tokio::test]
 async fn limits_torrents_speeds() {
     let (server, client) = setup().await;
     for action in ["setDownloadLimit", "setUploadLimit"] {
