@@ -2,6 +2,7 @@ use gpui_kit::{application, component::init};
 
 use crate::{assets::AppAssets, runtime::Tokio, update::Updater, windows::SettingsWindow};
 
+mod add_magnet;
 mod assets;
 mod consts;
 mod credentials;

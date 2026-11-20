@@ -10,6 +10,7 @@ use gpui_kit::{
         ActiveTheme as _, Disableable as _, Icon, Sizable as _, WindowExt as _,
         button::{Button, ButtonVariants as _, Toggle, ToggleGroup},
         input::{Input, InputEvent, InputState},
+        notification::Notification,
         popover::Popover,
         table::{DataTable, TableEvent, TableState},
     },
@@ -20,13 +21,14 @@ use gpui_kit::{
 use qbittorrent::{Client, Error, MainData, Torrent, TransferInfo};
 
 use crate::{
+    add_magnet,
     consts::{APP_ID, APP_TITLE},
     credentials::Credentials,
     details_panel::details_panel,
     format::format_rate,
     hotkeys::{
-        DeleteTorrent, FocusSearch, MAIN_WINDOW, ShowAll, ShowDownloading, ShowSeeding, ShowStopped, StartAll, StopAll,
-        ToggleSettings, ToggleTorrent,
+        AddMagnet, DeleteTorrent, FocusSearch, MAIN_WINDOW, ShowAll, ShowDownloading, ShowSeeding, ShowStopped,
+        StartAll, StopAll, ToggleSettings, ToggleTorrent,
     },
     prefs::Prefs,
     runtime::Tokio,
@@ -473,6 +475,27 @@ impl MainWindow {
         }
     }
 
+    /// Ask for magnet links and add them, telling the user if qBittorrent couldn't.
+    fn add_magnet(&mut self, _: &AddMagnet, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.table.read(cx).delegate().can_send() {
+            return;
+        }
+        let table = self.table.clone();
+        let handle = window.window_handle();
+        add_magnet::open(window, cx, move |links, cx| {
+            let Some(request) = table.read(cx).delegate().add_links(links) else { return };
+            cx.spawn(async move |cx| {
+                let Ok(Err(message)) = request.await else { return };
+                handle
+                    .update(cx, |_, window, cx| {
+                        window.push_notification(Notification::error(message), cx);
+                    })
+                    .ok();
+            })
+            .detach();
+        });
+    }
+
     /// Leave the search box for the table when escape isn't otherwise used there.
     fn search_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if event.keystroke.key == "escape" {
@@ -676,11 +699,23 @@ impl Render for MainWindow {
                     .justify_between()
                     .child(div().child(APP_TITLE).font_bold().text_3xl())
                     .child(
-                        Button::new("settings")
-                            .icon(IconName::Settings)
-                            .ghost()
-                            .tooltip_with_action("Settings", &ToggleSettings, None)
-                            .on_click(|_, _, cx| SettingsWindow::toggle(cx)),
+                        h_flex()
+                            .gap_1()
+                            .child(
+                                Button::new("add-magnet")
+                                    .icon(IconName::Plus)
+                                    .ghost()
+                                    .disabled(!self.table.read(cx).delegate().can_send())
+                                    .tooltip_with_action("Add magnet link", &AddMagnet, None)
+                                    .on_click(|_, window, cx| window.dispatch_action(Box::new(AddMagnet), cx)),
+                            )
+                            .child(
+                                Button::new("settings")
+                                    .icon(IconName::Settings)
+                                    .ghost()
+                                    .tooltip_with_action("Settings", &ToggleSettings, None)
+                                    .on_click(|_, _, cx| SettingsWindow::toggle(cx)),
+                            ),
                     ),
             )
             .children(status.map(|status| div().text_color(theme.muted_foreground).child(status)))
@@ -726,6 +761,7 @@ impl Render for MainWindow {
             .on_action(cx.listener(|this, _: &ShowStopped, _, cx| this.show_filter(Filter::Stopped, cx)))
             .on_action(cx.listener(Self::toggle_selected))
             .on_action(cx.listener(Self::delete_selected))
+            .on_action(cx.listener(Self::add_magnet))
             .on_action(cx.listener(|this, _: &StartAll, _, cx| this.table.read(cx).delegate().send_all(true)))
             .on_action(cx.listener(|this, _: &StopAll, _, cx| this.table.read(cx).delegate().send_all(false)))
             .size_full()
