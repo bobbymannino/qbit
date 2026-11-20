@@ -910,6 +910,47 @@ mod ui_tests {
         assert!(!stopped);
     }
 
+    fn has_dialog(cx: &mut TestAppContext, (handle, _): &View) -> bool {
+        cx.update_window(*handle, |_, window, cx| window.has_active_dialog(cx))
+            .unwrap()
+    }
+
+    #[gpui_kit::test]
+    fn adds_a_magnet_link(cx: &mut TestAppContext) {
+        let qbittorrent = MockQbittorrent::start();
+        let view = open(cx, &qbittorrent);
+
+        press(cx, &view, &primary("shift-o"));
+        assert!(has_dialog(cx, &view));
+        cx.simulate_input(view.0, "magnet:?xt=urn:btih:abc");
+        press(cx, &view, "enter");
+
+        let request = qbittorrent.wait_for("/api/v2/torrents/add");
+        assert_eq!(
+            String::from_utf8_lossy(&request.body),
+            "urls=magnet%3A%3Fxt%3Durn%3Abtih%3Aabc"
+        );
+        assert!(!has_dialog(cx, &view));
+    }
+
+    #[gpui_kit::test]
+    fn keeps_asking_until_its_a_magnet_link(cx: &mut TestAppContext) {
+        let qbittorrent = MockQbittorrent::start();
+        let view = open(cx, &qbittorrent);
+
+        press(cx, &view, &primary("shift-o"));
+        cx.simulate_input(view.0, "not a magnet link");
+        press(cx, &view, "enter");
+        std::thread::sleep(Duration::from_millis(100));
+
+        assert!(has_dialog(cx, &view));
+        let added = qbittorrent
+            .requests()
+            .iter()
+            .any(|request| request.url.path() == "/api/v2/torrents/add");
+        assert!(!added);
+    }
+
     #[gpui_kit::test]
     fn asks_before_deleting_the_selected_torrent(cx: &mut TestAppContext) {
         let qbittorrent = MockQbittorrent::start();
